@@ -22,19 +22,23 @@ from modoboa.lib.paginator import Paginator
 from modoboa.lib.web_utils import getctx, render_to_json_response
 from modoboa.parameters import tools as param_tools
 
+from modoboa_amavis.lib.spamassassin_client import (
+    SpamAssassinClient, SpamAssassinError, PolicyError
+)
+
 from . import constants
 from .templatetags.amavis_tags import (
     quar_menu, viewm_menu
 )
 from .lib import (
     selfservice, AMrelease, QuarantineNavigationParameters,
-    SpamassassinClient, manual_learning_enabled
+    manual_learning_enabled
 )
 from .forms import LearningRecipientForm
 from .models import Msgrcpt
 from .sql_connector import SQLconnector
 from .sql_email import SQLemail
-from .utils import smart_text
+from .utils import smart_bytes, smart_text
 
 
 def empty_quarantine():
@@ -344,29 +348,31 @@ def mark_messages(request, selection, mtype, recipient_db=None):
     """
     if not manual_learning_enabled(request.user):
         return render_to_json_response({"status": "ok"})
-    if recipient_db is None:
-        recipient_db = (
-            "user" if request.user.role == "SimpleUsers" else "global"
-        )
     selection = check_mail_id(request, selection)
     connector = SQLconnector()
-    saclient = SpamassassinClient(request.user, recipient_db)
-    for item in selection:
-        rcpt, mail_id = item.split()
-        content = connector.get_mail_content(mail_id)
-        result = saclient.learn_spam(rcpt, content) if mtype == "spam" \
-            else saclient.learn_ham(rcpt, content)
-        if not result:
-            break
-        connector.set_msgrcpt_status(rcpt, mail_id, mtype[0].upper())
-    if saclient.error is None:
-        saclient.done()
+    errors = []
+    # TODO: Permission checks
+    with SpamAssassinClient() as sa_client:
+        for item in selection:
+            rcpt, mail_id = item.split()
+            content = smart_bytes(connector.get_mail_content(mail_id))
+            try:
+                sa_client.learn(mtype, rcpt, content)
+            except SpamAssassinError as ex:
+                errors += [str(ex)]
+                break
+            except PolicyError as ex:
+                errors += [str(ex)]
+            else:
+                connector.set_msgrcpt_status(rcpt, mail_id, mtype[0].upper())
+    if not errors:
+        status = 200
         message = ungettext("%(count)d message processed successfully",
                             "%(count)d messages processed successfully",
                             len(selection)) % {"count": len(selection)}
     else:
-        message = saclient.error
-    status = 400 if saclient.error else 200
+        status = 400
+        message = "\n".join(errors)
     return render_to_json_response({
         "message": message, "reload": True
     }, status=status)

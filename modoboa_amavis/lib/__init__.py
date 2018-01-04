@@ -3,7 +3,6 @@
 from __future__ import unicode_literals
 
 from functools import wraps
-import os
 import re
 import socket
 import string
@@ -11,22 +10,18 @@ import struct
 
 import idna
 
-from django.conf import settings
 from django.urls import reverse
 from django.utils import six
 from django.utils.translation import ugettext as _
 
 from django.contrib.auth.views import redirect_to_login
 
-from modoboa.admin import models as admin_models
-from modoboa.lib.email_utils import (
-    split_mailbox, split_address, split_local_part)
+from modoboa.lib.email_utils import split_address, split_local_part
 from modoboa.lib.exceptions import InternalError
-from modoboa.lib.sysutils import exec_cmd
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
 
-from modoboa_amavis.utils import smart_bytes, smart_text
+from modoboa_amavis.utils import smart_bytes
 
 
 def selfservice(ssfunc=None):
@@ -94,140 +89,6 @@ recipient=%s
         return False
 
 
-class SpamassassinClient(object):
-    """A stupid spamassassin client."""
-
-    def __init__(self, user, recipient_db):
-        """Constructor."""
-        conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
-        self._sa_is_local = conf["sa_is_local"]
-        self._default_username = conf["default_user"]
-        self._recipient_db = recipient_db
-        self._setup_cache = {}
-        self._username_cache = []
-        if user.role == "SimpleUsers":
-            if conf["user_level_learning"]:
-                self._username = user.email
-        else:
-            self._username = None
-        self.error = None
-        if self._sa_is_local:
-            self._learn_cmd = self._find_binary("sa-learn")
-            self._learn_cmd += " --{0} --no-sync -u {1}"
-            self._learn_cmd_kwargs = {}
-            self._expected_exit_codes = [0]
-            self._sync_cmd = self._find_binary("sa-learn")
-            self._sync_cmd += " -u {0} --sync"
-        else:
-            self._learn_cmd = self._find_binary("spamc")
-            self._learn_cmd += " -d {0} -p {1}".format(
-                conf["spamd_address"], conf["spamd_port"]
-            )
-            self._learn_cmd += " -L {0} -u {1}"
-            self._learn_cmd_kwargs = {}
-            self._expected_exit_codes = [5, 6]
-
-    def _find_binary(self, name):
-        """Find path to binary."""
-        code, output = exec_cmd("which {}".format(name))
-        if not code:
-            return smart_text(output).strip()
-        known_paths = getattr(settings, "SA_LOOKUP_PATH", ("/usr/bin", ))
-        for path in known_paths:
-            bpath = os.path.join(path, name)
-            if os.path.isfile(bpath) and os.access(bpath, os.X_OK):
-                return bpath
-        raise InternalError(_("Failed to find {} binary").format(name))
-
-    def _get_mailbox_from_rcpt(self, rcpt):
-        """Retrieve a mailbox from a recipient address."""
-        local_part, domname, extension = (
-            split_mailbox(rcpt, return_extension=True))
-        try:
-            mailbox = admin_models.Mailbox.objects.select_related(
-                "domain").get(address=local_part, domain__name=domname)
-        except admin_models.Mailbox.DoesNotExist:
-            alias = admin_models.Alias.objects.filter(
-                address="{}@{}".format(local_part, domname),
-                aliasrecipient__r_mailbox__isnull=False).first()
-            if not alias:
-                raise InternalError(_("No recipient found"))
-            if alias.type != "alias":
-                return None
-            mailbox = alias.aliasrecipient_set.filter(
-                r_mailbox__isnull=False).first()
-        return mailbox
-
-    def _get_domain_from_rcpt(self, rcpt):
-        """Retrieve a domain from a recipient address."""
-        local_part, domname = split_mailbox(rcpt)
-        domain = admin_models.Domain.objects.filter(name=domname).first()
-        if not domain:
-            raise InternalError(_("Local domain not found"))
-        return domain
-
-    def _learn(self, rcpt, msg, mtype):
-        """Internal method to call the learning command."""
-        if self._username is None:
-            if self._recipient_db == "global":
-                username = self._default_username
-            elif self._recipient_db == "domain":
-                domain = self._get_domain_from_rcpt(rcpt)
-                username = domain.name
-                condition = (
-                    username not in self._setup_cache and
-                    setup_manual_learning_for_domain(domain))
-                if condition:
-                    self._setup_cache[username] = True
-            else:
-                mbox = self._get_mailbox_from_rcpt(rcpt)
-                if mbox is None:
-                    username = self._default_username
-                else:
-                    if isinstance(mbox, admin_models.Mailbox):
-                        username = mbox.full_address
-                    elif isinstance(mbox, admin_models.AliasRecipient):
-                        username = mbox.address
-                    else:
-                        username = None
-                    condition = (
-                        username is not None and
-                        username not in self._setup_cache and
-                        setup_manual_learning_for_mbox(mbox))
-                    if condition:
-                        self._setup_cache[username] = True
-        else:
-            username = self._username
-            if username not in self._setup_cache:
-                mbox = self._get_mailbox_from_rcpt(username)
-                if mbox and setup_manual_learning_for_mbox(mbox):
-                    self._setup_cache[username] = True
-        if username not in self._username_cache:
-            self._username_cache.append(username)
-        cmd = self._learn_cmd.format(mtype, username)
-        code, output = exec_cmd(
-            cmd, pinput=smart_bytes(msg), **self._learn_cmd_kwargs)
-        if code in self._expected_exit_codes:
-            return True
-        self.error = smart_text(output)
-        return False
-
-    def learn_spam(self, rcpt, msg):
-        """Learn new spam."""
-        return self._learn(rcpt, msg, "spam")
-
-    def learn_ham(self, rcpt, msg):
-        """Learn new ham."""
-        return self._learn(rcpt, msg, "ham")
-
-    def done(self):
-        """Call this method at the end of the processing."""
-        if self._sa_is_local:
-            for username in self._username_cache:
-                cmd = self._sync_cmd.format(username)
-                exec_cmd(cmd, **self._learn_cmd_kwargs)
-
-
 class QuarantineNavigationParameters(NavigationParameters):
     """
     Specific NavigationParameters subclass for the quarantine.
@@ -291,24 +152,6 @@ def manual_learning_enabled(user):
         else:
             manual_learning = conf["user_level_learning"]
         return manual_learning
-    return True
-
-
-def setup_manual_learning_for_domain(domain):
-    """Setup manual learning if necessary.
-
-    :return: True if learning has been setup, False otherwise
-    """
-    # Soon to be refactored out
-    return True
-
-
-def setup_manual_learning_for_mbox(mbox):
-    """Setup manual learning if necessary.
-
-    :return: True if learning has been setup, False otherwise
-    """
-    # Soon to be refactored out
     return True
 
 
