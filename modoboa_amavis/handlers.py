@@ -20,7 +20,7 @@ from .lib import (
     create_user_and_policy, update_user_and_policy, delete_user_and_policy,
     create_user_and_use_policy, delete_user
 )
-from .models import Policy, Users
+from .models import Policy, User
 from .sql_connector import SQLconnector
 from . import forms
 
@@ -82,9 +82,9 @@ def on_mailbox_modified(sender, instance, **kwargs):
     if condition:
         return
     try:
-        user = Users.objects.select_related("policy").get(
+        user = User.objects.select_related("policy").get(
             email=instance.old_full_address)
-    except Users.DoesNotExist:
+    except User.DoesNotExist:
         return
     full_address = instance.full_address
     user.email = full_address
@@ -122,7 +122,7 @@ def on_aliasrecipient_created(sender, instance, **kwargs):
         # to handle the case where an account is being replaced by an
         # alias (when it is disabled).
         email = instance.alias.address
-        Users.objects.update_or_create(
+        User.objects.update_or_create(
             email=email,
             defaults={"policy": policy, "fullname": email, "priority": 7}
         )
@@ -134,7 +134,7 @@ def on_mailboxalias_deleted(sender, instance, **kwargs):
     if not param_tools.get_global_parameter("manual_learning"):
         return
     aliases = [instance.address]
-    Users.objects.filter(email__in=aliases).delete()
+    User.objects.filter(email__in=aliases).delete()
 
 
 @receiver(core_signals.extra_static_content)

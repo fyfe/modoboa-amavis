@@ -31,7 +31,7 @@ class DomainTestCase(ModoTestCase):
         domain = admin_factories.DomainFactory(name="domain.test")
         name = "@{}".format(domain.name)
         policy = models.Policy.objects.get(policy_name=name)
-        user = models.Users.objects.filter(policy=policy).first()
+        user = models.User.objects.filter(policy=policy).first()
         self.assertIsNot(user, None)
         self.assertEqual(user.email, name)
 
@@ -50,7 +50,7 @@ class DomainTestCase(ModoTestCase):
         name = "@dalias.test"
         self.assertFalse(
             models.Policy.objects.filter(policy_name=name).exists())
-        user = models.Users.objects.get(email=name)
+        user = models.User.objects.get(email=name)
         self.assertEqual(user.policy, policy)
 
         # Delete domain alias
@@ -58,7 +58,7 @@ class DomainTestCase(ModoTestCase):
         self.ajax_post(
             reverse("admin:domain_change", args=[domain.pk]), data)
         self.assertFalse(
-            models.Users.objects.filter(email=name).exists())
+            models.User.objects.filter(email=name).exists())
 
     def test_rename_domain(self):
         """Test domain rename."""
@@ -67,7 +67,7 @@ class DomainTestCase(ModoTestCase):
         domain.save()
         name = "@{}".format(domain.name)
         self.assertTrue(
-            models.Users.objects.filter(email=name).exists())
+            models.User.objects.filter(email=name).exists())
         self.assertTrue(
             models.Policy.objects.filter(policy_name=name).exists())
 
@@ -77,7 +77,7 @@ class DomainTestCase(ModoTestCase):
         domain.delete(None)
         name = "@{}".format(domain.name)
         self.assertFalse(
-            models.Users.objects.filter(email=name).exists())
+            models.User.objects.filter(email=name).exists())
         self.assertFalse(
             models.Policy.objects.filter(policy_name=name).exists())
 
@@ -136,7 +136,7 @@ class ManualLearningTestCase(ModoTestCase):
         self.ajax_post(reverse("admin:alias_add"), values)
         policy = models.Policy.objects.get(
             policy_name=values["recipients"])
-        user = models.Users.objects.get(email=values["address"])
+        user = models.User.objects.get(email=values["address"])
         self.assertEqual(user.policy, policy)
 
         values = {
@@ -147,7 +147,7 @@ class ManualLearningTestCase(ModoTestCase):
         self.ajax_post(reverse("admin:alias_add"), values)
         policy = models.Policy.objects.get(
             policy_name=values["recipients"])
-        user = models.Users.objects.get(email=values["address"])
+        user = models.User.objects.get(email=values["address"])
         self.assertEqual(user.policy, policy)
 
     def test_mailbox_rename(self):
@@ -167,7 +167,7 @@ class ManualLearningTestCase(ModoTestCase):
         url = reverse("admin:account_change", args=[user.pk])
         self.ajax_post(url, values)
         self.assertTrue(
-            models.Users.objects.filter(email=values["email"]).exists()
+            models.User.objects.filter(email=values["email"]).exists()
         )
 
     def test_learn_alias_spam_as_admin(self):

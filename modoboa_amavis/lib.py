@@ -26,7 +26,7 @@ from modoboa.lib.sysutils import exec_cmd
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
 
-from .models import Users, Policy
+from .models import User, Policy
 from .utils import smart_bytes, smart_text
 
 
@@ -284,10 +284,10 @@ def create_user_and_policy(name, priority=7):
     :param str name: name
     :return: the new ``Policy`` object
     """
-    if Users.objects.filter(email=name).exists():
+    if User.objects.filter(email=name).exists():
         return Policy.objects.get(policy_name=name[:32])
     policy = Policy.objects.create(policy_name=name[:32])
-    Users.objects.create(
+    User.objects.create(
         email=name, fullname=name, priority=priority, policy=policy
     )
     return policy
@@ -301,7 +301,7 @@ def create_user_and_use_policy(name, policy, priority=7):
     """
     if isinstance(policy, six.string_types):
         policy = Policy.objects.get(policy_name=policy[:32])
-    Users.objects.get_or_create(
+    User.objects.get_or_create(
         email=name, fullname=name, priority=priority, policy=policy
     )
 
@@ -314,7 +314,7 @@ def update_user_and_policy(oldname, newname):
     """
     if oldname == newname:
         return
-    u = Users.objects.get(email=oldname)
+    u = User.objects.get(email=oldname)
     u.email = newname
     u.fullname = newname
     u.policy.policy_name = newname[:32]
@@ -328,8 +328,8 @@ def delete_user_and_policy(name):
     :param str name: identifier
     """
     try:
-        u = Users.objects.get(email=name)
-    except Users.DoesNotExist:
+        u = User.objects.get(email=name)
+    except User.DoesNotExist:
         return
     u.policy.delete()
     u.delete()
@@ -341,8 +341,8 @@ def delete_user(name):
     :param str name: user record name
     """
     try:
-        Users.objects.get(email=name).delete()
-    except Users.DoesNotExist:
+        User.objects.get(email=name).delete()
+    except User.DoesNotExist:
         pass
 
 
