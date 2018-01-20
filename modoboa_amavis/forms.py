@@ -13,7 +13,7 @@ from modoboa.lib import form_utils
 from modoboa.parameters import forms as param_forms
 from modoboa.parameters import tools as param_tools
 
-from .models import Policy, Users
+from .models import Policy, User
 
 
 class DomainPolicyForm(forms.ModelForm):
@@ -41,10 +41,10 @@ class DomainPolicyForm(forms.ModelForm):
         if "instance" in kwargs:
             self.domain = kwargs["instance"]
             try:
-                policy = Users.objects.get(
+                policy = User.objects.get(
                     email="@%s" % self.domain.name).policy
                 kwargs["instance"] = policy
-            except (Users.DoesNotExist, Policy.DoesNotExist):
+            except (User.DoesNotExist, Policy.DoesNotExist):
                 del kwargs["instance"]
         super(DomainPolicyForm, self).__init__(*args, **kwargs)
         for field in self.fields.keys():
@@ -63,9 +63,9 @@ class DomainPolicyForm(forms.ModelForm):
         if commit:
             policy.save()
             try:
-                u = Users.objects.get(fullname=policy.policy_name)
-            except Users.DoesNotExist:
-                u = Users.objects.get(email="@%s" % self.domain.name)
+                u = User.objects.get(fullname=policy.policy_name)
+            except User.DoesNotExist:
+                u = User.objects.get(email="@%s" % self.domain.name)
                 u.policy = policy
                 policy.save()
         return policy

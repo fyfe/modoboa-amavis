@@ -2,3 +2,4 @@ modoboa>=1.10.0
 chardet
 html2text
 idna
+enum34 ; python_version < '3.4'

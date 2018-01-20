@@ -2,10 +2,10 @@
 
 from __future__ import unicode_literals
 
-from .policy import Policy, Users, Mailaddr, Wblist
+from .policy import BlackWhiteList, Policy, SenderAddress, User
 from .quarantine import Maddr, Msgs, Msgrcpt, Quarantine
 
 __all__ = [
-    "Policy", "Users", "Mailaddr", "Wblist",
+    "BlackWhiteList", "Policy", "SenderAddress", "User",
     "Maddr", "Msgs", "Msgrcpt", "Quarantine",
 ]
