@@ -95,7 +95,7 @@ class MaddrFactory(factory.DjangoModelFactory):
 
 
 class MsgsFactory(factory.DjangoModelFactory):
-    """Factory for Mailaddr."""
+    """Factory for Msgs."""
 
     class Meta:
         model = models.Msgs
