@@ -26,8 +26,8 @@ from modoboa.lib.sysutils import exec_cmd
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
 
-from .models import User, Policy
-from .utils import smart_bytes, smart_text
+from modoboa_amavis.models import User, Policy
+from modoboa_amavis.utils import smart_bytes, smart_text
 
 
 def selfservice(ssfunc=None):
