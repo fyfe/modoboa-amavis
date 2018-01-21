@@ -27,4 +27,16 @@ urlpatterns = [
     url(r'^(?P<mail_id>[\w\-\+]+)/$', views.viewmail, name="mail_detail"),
     url(r'^(?P<mail_id>[\w\-\+]+)/headers/$', views.viewheaders,
         name="headers_detail"),
+
+    url(
+        r"^bwlist/$",
+        views.policy.BlackWhiteListView.as_view(),
+        {"recipient": None},
+        name="bwlist",
+    ),
+    url(
+        r"^bwlist/(?P<recipient>.+)/$",
+        views.policy.BlackWhiteListView.as_view(),
+        name="bwlist"
+    ),
 ]
