@@ -13,7 +13,7 @@ from modoboa.lib import form_utils
 from modoboa.parameters import forms as param_forms
 from modoboa.parameters import tools as param_tools
 
-from .models import Policy, User
+from .models import BlackWhiteList, Policy, User
 
 
 class DomainPolicyForm(forms.ModelForm):
@@ -273,3 +273,29 @@ class UserSettings(param_forms.UserParametersForm):
         help_text=ugettext_lazy(
             "Set the maximum number of messages displayed in a page")
     )
+
+
+class BlackWhiteListingForm(forms.ModelForm):
+
+    def __init__(self, *args, **kwargs):
+        super(BlackWhiteListingForm, self).__init__(*args, **kwargs)
+        conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
+        self.hard_wb_mode = conf["hard_wb_mode"] or False
+
+        if self.hard_wb_mode:
+            self.widgets["action"] = forms.ChoiceField(
+                label=ugettext_lazy("Action"),
+                choices=[
+                    ("W", ugettext_lazy("white list")),
+                    ("B", ugettext_lazy("black list")),
+                    (None, ugettext_lazy("default")),
+                ],
+            )
+        else:
+            self.widgets["action"] = forms.DecimalInput(
+                max_digits=7, decimal_places=4
+            )
+
+    class Meta:
+        model = BlackWhiteList
+        fields = ("recipient", "sender", "action")

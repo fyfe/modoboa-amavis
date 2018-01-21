@@ -1,0 +1,3 @@
+#wblist > tbody > tr[data-global-policy] {
+    background-color: silver;
+}
