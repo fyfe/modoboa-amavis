@@ -26,7 +26,6 @@ from modoboa.lib.sysutils import exec_cmd
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
 
-from modoboa_amavis.models import User, Policy
 from modoboa_amavis.utils import smart_bytes, smart_text
 
 
@@ -275,77 +274,6 @@ class QuarantineNavigationParameters(NavigationParameters):
         return url
 
 
-def create_user_and_policy(name, priority=7):
-    """Create records.
-
-    Create two records (a user and a policy) using :keyword:`name` as
-    an identifier.
-
-    :param str name: name
-    :return: the new ``Policy`` object
-    """
-    if User.objects.filter(email=name).exists():
-        return Policy.objects.get(policy_name=name[:32])
-    policy = Policy.objects.create(policy_name=name[:32])
-    User.objects.create(
-        email=name, fullname=name, priority=priority, policy=policy
-    )
-    return policy
-
-
-def create_user_and_use_policy(name, policy, priority=7):
-    """Create a *users* record and use an existing policy.
-
-    :param str name: user record name
-    :param str policy: string or Policy instance
-    """
-    if isinstance(policy, six.string_types):
-        policy = Policy.objects.get(policy_name=policy[:32])
-    User.objects.get_or_create(
-        email=name, fullname=name, priority=priority, policy=policy
-    )
-
-
-def update_user_and_policy(oldname, newname):
-    """Update records.
-
-    :param str oldname: old name
-    :param str newname: new name
-    """
-    if oldname == newname:
-        return
-    u = User.objects.get(email=oldname)
-    u.email = newname
-    u.fullname = newname
-    u.policy.policy_name = newname[:32]
-    u.policy.save()
-    u.save()
-
-
-def delete_user_and_policy(name):
-    """Delete records.
-
-    :param str name: identifier
-    """
-    try:
-        u = User.objects.get(email=name)
-    except User.DoesNotExist:
-        return
-    u.policy.delete()
-    u.delete()
-
-
-def delete_user(name):
-    """Delete a *users* record.
-
-    :param str name: user record name
-    """
-    try:
-        User.objects.get(email=name).delete()
-    except User.DoesNotExist:
-        pass
-
-
 def manual_learning_enabled(user):
     """Check if manual learning is enabled or not.
 
@@ -371,11 +299,7 @@ def setup_manual_learning_for_domain(domain):
 
     :return: True if learning has been setup, False otherwise
     """
-    if Policy.objects.filter(sa_username=domain.name).exists():
-        return False
-    policy = Policy.objects.get(policy_name="@{}".format(domain.name[:32]))
-    policy.sa_username = domain.name
-    policy.save()
+    # Soon to be refactored out
     return True
 
 
@@ -384,20 +308,8 @@ def setup_manual_learning_for_mbox(mbox):
 
     :return: True if learning has been setup, False otherwise
     """
-    result = False
-    if (isinstance(mbox, admin_models.AliasRecipient) and
-       mbox.r_mailbox is not None):
-        mbox = mbox.r_mailbox
-    if isinstance(mbox, admin_models.Mailbox):
-        pname = mbox.full_address[:32]
-        if not Policy.objects.filter(policy_name=pname).exists():
-            policy = create_user_and_policy(pname)
-            policy.sa_username = mbox.full_address
-            policy.save()
-            for alias in mbox.alias_addresses:
-                create_user_and_use_policy(alias, policy)
-            result = True
-    return result
+    # Soon to be refactored out
+    return True
 
 
 def make_query_args(address, exact_extension=True, wildcard=None,

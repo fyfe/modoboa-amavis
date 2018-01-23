@@ -2,182 +2,236 @@
 
 """Amavis tests."""
 
+# [1] TODO: create a PostgreSQL/MySQL test enviroment
+#           smart_bytes() is required because the SQLite database used for
+#           testing uses a char field for email not a binary field like
+#           real world PostgreSQL/MySQL setups.
+
 from __future__ import unicode_literals
 
-import os
-
-from django.urls import reverse
-from django.test import override_settings
-
 from modoboa.admin import factories as admin_factories
-from modoboa.admin import models as admin_models
-from modoboa.core import models as core_models
+from modoboa.core import factories as core_factories
 from modoboa.lib.tests import ModoTestCase
 
-from .. import factories
-from .. import lib
-from .. import models
+from modoboa_amavis import models
+from modoboa_amavis.utils import smart_bytes
 
 
-class DomainTestCase(ModoTestCase):
-    """Check that database is populated."""
+class DomainPolicyHandlerTestCase(ModoTestCase):
 
-    def setUp(self):
-        """Initiate test context."""
-        self.admin = core_models.User.objects.get(username="admin")
+    """Tests for policy handlers."""
+
+    def setUp(self):  # noqa: N802
+        """Create initial test data that's modified by tests."""
+        super(DomainPolicyHandlerTestCase, self).setUp()
+        self.domain = admin_factories.DomainFactory(name="example.com")
 
     def test_create_domain(self):
-        """Test domain creation."""
-        domain = admin_factories.DomainFactory(name="domain.test")
-        name = "@{}".format(domain.name)
-        policy = models.Policy.objects.get(policy_name=name)
-        user = models.User.objects.filter(policy=policy).first()
-        self.assertIsNot(user, None)
-        self.assertEqual(user.email, name)
-
-        # Create a domain alias
-        self.client.force_login(self.admin)
-        data = {
-            "name": domain.name,
-            "type": "domain",
-            "enabled": domain.enabled,
-            "quota": domain.quota,
-            "default_mailbox_quota": domain.default_mailbox_quota,
-            "aliases_1": "dalias.test"
-        }
-        self.ajax_post(
-            reverse("admin:domain_change", args=[domain.pk]), data)
-        name = "@dalias.test"
-        self.assertFalse(
-            models.Policy.objects.filter(policy_name=name).exists())
-        user = models.User.objects.get(email=name)
-        self.assertEqual(user.policy, policy)
-
-        # Delete domain alias
-        del data["aliases_1"]
-        self.ajax_post(
-            reverse("admin:domain_change", args=[domain.pk]), data)
-        self.assertFalse(
-            models.User.objects.filter(email=name).exists())
+        """Check User and Policy are created for a new domain."""
+        name = smart_bytes("@%s" % self.domain.name)
+        try:
+            user = models.User.objects.get(email=name)
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(user.email), name)
+            self.assertEqual(user.fullname, self.domain.name)
+            self.assertEqual(user.priority, models.User.Priority.DOMAIN)
+            self.assertIsNot(user.policy, None)
+            self.assertIsNot(user.policy.policy_name, self.domain.name[:32])
 
     def test_rename_domain(self):
-        """Test domain rename."""
-        domain = admin_factories.DomainFactory(name="domain.test")
-        domain.name = "domain1.test"
-        domain.save()
-        name = "@{}".format(domain.name)
-        self.assertTrue(
-            models.User.objects.filter(email=name).exists())
-        self.assertTrue(
-            models.Policy.objects.filter(policy_name=name).exists())
+        """Check User and Policy are updated when a domain is renamed."""
+        self.domain.name = "example.net"
+        self.domain.save()
+        name = smart_bytes("@%s" % self.domain.name)
+        try:
+            user = models.User.objects.get(email=name)
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(user.email), name)
+            self.assertEqual(user.fullname, self.domain.name)
+            self.assertEqual(user.priority, models.User.Priority.DOMAIN)
+            self.assertIsNot(user.policy, None)
+            self.assertEqual(user.policy.policy_name, self.domain.name[:32])
 
     def test_delete_domain(self):
-        """Test domain removal."""
-        domain = admin_factories.DomainFactory(name="domain.test")
-        domain.delete(None)
-        name = "@{}".format(domain.name)
-        self.assertFalse(
-            models.User.objects.filter(email=name).exists())
-        self.assertFalse(
-            models.Policy.objects.filter(policy_name=name).exists())
-
-    def test_update_domain_policy(self):
-        """Check domain policy edition."""
-        self.client.force_login(self.admin)
-        domain = admin_factories.DomainFactory(name="domain.test")
-        url = reverse("admin:domain_change", args=[domain.pk])
-        # response = self.client.get(url)
-        # self.assertContains(response, "Content filter")
-        custom_title = "This is SPAM!"
-        data = {
-            "name": domain.name,
-            "type": "domain",
-            "enabled": domain.enabled,
-            "quota": domain.quota,
-            "default_mailbox_quota": domain.default_mailbox_quota,
-            "bypass_virus_checks": "Y",
-            "spam_subject_tag2_act": False,
-            "spam_subject_tag2": custom_title
-        }
-        self.ajax_post(url, data)
-        name = "@{}".format(domain.name)
-        policy = models.Policy.objects.get(policy_name=name)
-        self.assertEqual(policy.spam_subject_tag2, custom_title)
+        """Check User is deleted when a domain is deleted."""
+        name = smart_bytes("@%s" % self.domain.name)
+        # None is user deleting object, used by modoboa for logging.
+        self.domain.delete(None)
+        with self.assertRaises(models.User.DoesNotExist):
+            models.User.objects.get(email=name)
 
 
-@override_settings(SA_LOOKUP_PATH=(os.path.dirname(__file__), ))
-class ManualLearningTestCase(ModoTestCase):
-    """Check manual learning mode."""
+class DomainAliasPolicyHandlerTestCase(ModoTestCase):
+
+    """Tests for policy handlers."""
 
     @classmethod
-    def setUpTestData(cls):  # noqa:N802
-        """Create test data."""
-        super(ManualLearningTestCase, cls).setUpTestData()
-        admin_factories.populate_database()
+    def setUpTestData(cls):  # noqa: N802
+        """Create initial test data that's shared by all tests."""
+        super(DomainAliasPolicyHandlerTestCase, cls).setUpTestData()
+        cls.domain = admin_factories.DomainFactory(name="example.com")
 
-    def test_alias_creation(self):
-        """Check alias creation."""
-        self.set_global_parameter("user_level_learning", True)
-
-        # Fake activation because we don't have test data yet for
-        # amavis...
-        lib.setup_manual_learning_for_mbox(
-            admin_models.Mailbox.objects.get(
-                address="user", domain__name="test.com"))
-        lib.setup_manual_learning_for_mbox(
-            admin_models.Mailbox.objects.get(
-                address="admin", domain__name="test.com"))
-
-        values = {
-            "address": "alias1000@test.com",
-            "recipients": "admin@test.com",
-            "enabled": True
-        }
-        self.ajax_post(reverse("admin:alias_add"), values)
-        policy = models.Policy.objects.get(
-            policy_name=values["recipients"])
-        user = models.User.objects.get(email=values["address"])
-        self.assertEqual(user.policy, policy)
-
-        values = {
-            "address": "user@test.com",
-            "recipients": "admin@test.com",
-            "enabled": True
-        }
-        self.ajax_post(reverse("admin:alias_add"), values)
-        policy = models.Policy.objects.get(
-            policy_name=values["recipients"])
-        user = models.User.objects.get(email=values["address"])
-        self.assertEqual(user.policy, policy)
-
-    def test_mailbox_rename(self):
-        """Check rename case."""
-        self.set_global_parameter("user_level_learning", True)
-
-        lib.setup_manual_learning_for_mbox(
-            admin_models.Mailbox.objects.get(
-                address="user", domain__name="test.com"))
-
-        user = core_models.User.objects.get(username="user@test.com")
-        values = {
-            "username": "user2@test.com", "role": "SimpleUsers",
-            "quota_act": True, "is_active": True, "email": "user2@test.com",
-            "language": "en"
-        }
-        url = reverse("admin:account_change", args=[user.pk])
-        self.ajax_post(url, values)
-        self.assertTrue(
-            models.User.objects.filter(email=values["email"]).exists()
+    def setUp(self):  # noqa: N802
+        """Create initial test data that's modified by tests."""
+        super(DomainAliasPolicyHandlerTestCase, self).setUp()
+        self.domain_alias = admin_factories.DomainAliasFactory(
+            name="example.org", target=self.domain
         )
 
-    def test_learn_alias_spam_as_admin(self):
-        """Check learning spam for an alias address as admin user."""
-        user = core_models.User.objects.get(username="admin")
-        recipient_db = "user"
-        rcpt = "alias@test.com"
-        sender = "spam@evil.corp"
-        content = factories.SPAM_BODY.format(rcpt=rcpt, sender=sender)
+    def test_create_domainalias(self):
+        """Check User and Policy are created for a new domain alias."""
+        name = smart_bytes("@%s" % self.domain_alias.name)
+        try:
+            alias_user = models.User.objects.get(
+                email=name, priority=models.User.Priority.DOMAIN_ALIAS
+            )
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # check policy for new alias
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(alias_user.email), name)
+            self.assertEqual(alias_user.fullname, self.domain_alias.name)
+            self.assertEqual(
+                alias_user.priority, models.User.Priority.DOMAIN_ALIAS
+            )
+            self.assertIsNot(alias_user.policy, None)
+            self.assertEqual(
+                alias_user.policy.policy_name,
+                self.domain_alias.target.name[:32]
+            )
 
-        saclient = lib.SpamassassinClient(user, recipient_db)
-        result = saclient.learn_spam(rcpt, content)
-        self.assertTrue(result)
+    def test_delete_domainalias(self):
+        """Check User is deleted when a domain alias is deleted."""
+        name = smart_bytes("@%s" % self.domain_alias.name)
+        self.domain_alias.delete()
+        with self.assertRaises(models.User.DoesNotExist):
+            models.User.objects.get(email=name)
+
+
+class MailboxPolicyHandlerTestCase(ModoTestCase):
+
+    """Tests for policy handlers."""
+
+    @classmethod
+    def setUpTestData(cls):  # noqa: N802
+        """Create initial test data that's shared by all tests."""
+        super(MailboxPolicyHandlerTestCase, cls).setUpTestData()
+        cls.domain = admin_factories.DomainFactory(name="example.com")
+        cls.account = core_factories.UserFactory.create(
+            username="user@example.com", groups=("SimpleUsers",),
+        )
+
+    def setUp(self):  # noqa: N802
+        """Create initial test data that's modified by tests."""
+        super(MailboxPolicyHandlerTestCase, self).setUp()
+        self.mailbox = admin_factories.MailboxFactory.create(
+            address="user", domain=self.domain, user=self.account
+        )
+
+    def test_create_mailbox(self):
+        """Check User and Policy are created for a new mailbox."""
+        name = smart_bytes(self.mailbox.full_address)
+        try:
+            user = models.User.objects.get(email=name)
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(user.email), name)
+            self.assertEqual(user.fullname, self.mailbox.full_address)
+            self.assertEqual(user.priority, models.User.Priority.USER)
+            self.assertIsNot(user.policy, None)
+            self.assertIsNot(
+                user.policy.policy_name, self.mailbox.full_address[:32]
+            )
+
+    def test_rename_mailbox(self):
+        """Check User and Policy are updated when a mailbox is renamed."""
+        self.mailbox.address = "user2"
+        self.mailbox.save()
+        name = smart_bytes(self.mailbox.full_address)
+        try:
+            user = models.User.objects.get(email=name)
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(user.email), name)
+            self.assertEqual(user.fullname, self.mailbox.full_address)
+            self.assertEqual(user.priority, models.User.Priority.USER)
+            self.assertIsNot(user.policy, None)
+            self.assertIsNot(
+                user.policy.policy_name, self.mailbox.full_address[:32]
+            )
+
+    def test_delete_mailbox(self):
+        """Check User is deleted when a mailbox is deleted."""
+        name = smart_bytes(self.mailbox.full_address)
+        # None is user deleting object, used by modoboa for logging.
+        self.mailbox.delete()
+        with self.assertRaises(models.User.DoesNotExist):
+            models.User.objects.get(email=name)
+
+
+class MailboxAliasPolicyHandlerTestCase(ModoTestCase):
+
+    """Tests for policy handlers."""
+
+    @classmethod
+    def setUpTestData(cls):  # noqa: N802
+        """Create initial test data that's shared by all tests."""
+        super(MailboxAliasPolicyHandlerTestCase, cls).setUpTestData()
+        cls.domain = admin_factories.DomainFactory(name="example.com")
+        cls.account = core_factories.UserFactory.create(
+            username="user@example.com", groups=("SimpleUsers",),
+        )
+        cls.mailbox = admin_factories.MailboxFactory.create(
+            address="user", domain=cls.domain, user=cls.account
+        )
+
+    def setUp(self):  # noqa: N802
+        """Create initial test data that's modified by tests."""
+        super(MailboxAliasPolicyHandlerTestCase, self).setUp()
+        self.alias = admin_factories.AliasFactory.create(
+            address="alias@example.com", domain=self.domain
+        )
+        self.alias_recipient = admin_factories.AliasRecipientFactory.create(
+            address=self.mailbox.full_address,
+            alias=self.alias, r_mailbox=self.mailbox
+        )
+
+    def test_create_mailboxalias(self):
+        """Check User and Policy are created for a new mailbox alias."""
+        name = smart_bytes(self.alias.address)
+        try:
+            alias_user = models.User.objects.get(
+                email=name, priority=models.User.Priority.USER_ALIAS
+            )
+        except models.User.DoesNotExist:
+            raise
+        else:
+            # check policy for new alias
+            # See ^^^ Note [1] ^^^
+            self.assertEqual(smart_bytes(alias_user.email), name)
+            self.assertEqual(alias_user.fullname, self.alias.address)
+            self.assertEqual(
+                alias_user.priority, models.User.Priority.USER_ALIAS
+            )
+            self.assertIsNot(alias_user.policy, None)
+            self.assertEqual(
+                alias_user.policy.policy_name, self.alias_recipient.address[:32]
+            )
+
+    def test_delete_mailboxalias(self):
+        """Check User is deleted when a mailbox alias is deleted."""
+        name = smart_bytes(self.alias.address)
+        self.alias.delete()
+        with self.assertRaises(models.User.DoesNotExist):
+            models.User.objects.get(email=name)

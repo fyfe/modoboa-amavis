@@ -16,13 +16,10 @@ from modoboa.core import signals as core_signals
 from modoboa.lib import signals as lib_signals
 from modoboa.parameters import tools as param_tools
 
-from .lib import (
-    create_user_and_policy, update_user_and_policy, delete_user_and_policy,
-    create_user_and_use_policy, delete_user
-)
-from .models import Policy, User
-from .sql_connector import SQLconnector
-from . import forms
+from modoboa_amavis import forms
+from modoboa_amavis.lib import policy_management as pm
+from modoboa_amavis.models import policy as policy_models
+from modoboa_amavis.sql_connector import SQLconnector
 
 
 @receiver(core_signals.extra_user_menu_entries)
@@ -35,106 +32,6 @@ def menu(sender, location, user, **kwargs):
              "url": reverse("modoboa_amavis:index")}
         ]
     return []
-
-
-@receiver(signals.post_save, sender=admin_models.Domain)
-def manage_domain_policy(sender, instance, **kwargs):
-    """Create user and policy when a domain is added."""
-    if kwargs.get("created"):
-        create_user_and_policy("@{0}".format(instance.name))
-    else:
-        update_user_and_policy(
-            "@{0}".format(instance.oldname),
-            "@{0}".format(instance.name)
-        )
-
-
-@receiver(signals.pre_delete, sender=admin_models.Domain)
-def on_domain_deleted(sender, instance, **kwargs):
-    """Delete user and policy for domain."""
-    delete_user_and_policy("@{0}".format(instance.name))
-
-
-@receiver(signals.post_save, sender=admin_models.DomainAlias)
-def on_domain_alias_created(sender, instance, **kwargs):
-    """Create user and use domain policy for domain alias."""
-    if not kwargs.get("created"):
-        return
-    create_user_and_use_policy(
-        "@{0}".format(instance.name),
-        "@{0}".format(instance.target.name)
-    )
-
-
-@receiver(signals.pre_delete, sender=admin_models.DomainAlias)
-def on_domain_alias_deleted(sender, instance, **kwargs):
-    """Delete user for domain alias."""
-    delete_user("@{0}".format(instance.name))
-
-
-@receiver(signals.post_save, sender=admin_models.Mailbox)
-def on_mailbox_modified(sender, instance, **kwargs):
-    """Update amavis records if address has changed."""
-    condition = (
-        not param_tools.get_global_parameter("manual_learning") or
-        not hasattr(instance, "old_full_address") or
-        instance.full_address == instance.old_full_address)
-    if condition:
-        return
-    try:
-        user = User.objects.select_related("policy").get(
-            email=instance.old_full_address)
-    except User.DoesNotExist:
-        return
-    full_address = instance.full_address
-    user.email = full_address
-    user.policy.policy_name = full_address[:32]
-    user.policy.sa_username = full_address
-    user.policy.save()
-    user.save()
-
-
-@receiver(signals.pre_delete, sender=admin_models.Mailbox)
-def on_mailbox_deleted(sender, instance, **kwargs):
-    """Clean amavis database when a mailbox is removed."""
-    if not param_tools.get_global_parameter("manual_learning"):
-        return
-    delete_user_and_policy("@{0}".format(instance.full_address))
-
-
-@receiver(signals.post_save, sender=admin_models.AliasRecipient)
-def on_aliasrecipient_created(sender, instance, **kwargs):
-    """Create amavis record for the new alias recipient.
-
-    FIXME: how to deal with distibution lists ?
-    """
-    conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
-    condition = (
-        not conf["manual_learning"] or not conf["user_level_learning"] or
-        not instance.r_mailbox or
-        instance.alias.type != "alias")
-    if condition:
-        return
-    policy = Policy.objects.filter(
-        policy_name=instance.r_mailbox.full_address).first()
-    if policy:
-        # Use mailbox policy for this new alias. We update or create
-        # to handle the case where an account is being replaced by an
-        # alias (when it is disabled).
-        email = instance.alias.address
-        User.objects.update_or_create(
-            email=email,
-            defaults={"policy": policy, "fullname": email, "priority": 7}
-        )
-
-
-@receiver(signals.pre_delete, sender=admin_models.Alias)
-def on_mailboxalias_deleted(sender, instance, **kwargs):
-    """Clean amavis database when an alias is removed."""
-    if not param_tools.get_global_parameter("manual_learning"):
-        return
-    aliases = [instance.address]
-    User.objects.filter(email__in=aliases).delete()
 
 
 @receiver(core_signals.extra_static_content)
@@ -196,3 +93,79 @@ def fill_domain_instances(sender, user, domain, **kwargs):
     if not user.has_perm("admin.view_domains"):
         return {}
     return {"amavis": domain}
+
+
+# ------------------------------------------------------------------------------
+# Policy Handlers
+# ------------------------------------------------------------------------------
+
+@receiver(signals.post_save, sender=admin_models.Domain)
+def setup_domain_policy(sender, instance, created, **kwargs):
+    """Setup Amavis policy for a domain."""
+    if created:
+        pm.setup_domain_policy(instance)
+    elif instance.oldname != instance.name:
+        old_name = "@%s" % instance.oldname
+        new_name = "@%s" % instance.name
+        pm.rename_user_and_policy(old_name, new_name, instance.name)
+
+
+@receiver(signals.pre_delete, sender=admin_models.Domain)
+def remove_domain_policy(sender, instance, **kwargs):
+    """Remove Amavis policy for a domain."""
+    name = "@%s" % instance.name
+    pm.delete_user_and_policy(name)
+
+
+@receiver(signals.post_save, sender=admin_models.DomainAlias)
+def setup_domain_alias_policy(sender, instance, created, **kwargs):
+    """Setup Amavis policy for a domain alias."""
+    if created:
+        pm.setup_domain_alias_policy(instance)
+
+
+@receiver(signals.pre_delete, sender=admin_models.DomainAlias)
+def remove_domain_alias_policy(sender, instance, **kwargs):
+    """Remove Amavis policy for a domain alias."""
+    name = "@%s" % instance.name
+    pm.delete_user_and_policy(name)
+
+
+@receiver(signals.post_save, sender=admin_models.Mailbox)
+def setup_mailbox_policy(sender, instance, created, **kwargs):
+    """Setup Amavis policy for a mailbox."""
+    if created:
+        pm.setup_mailbox_policy(instance)
+    elif instance.old_full_address != instance.full_address:
+        pm.rename_user_and_policy(
+            instance.old_full_address,
+            instance.full_address,
+            instance.full_address
+        )
+
+
+@receiver(signals.pre_delete, sender=admin_models.Mailbox)
+def remove_mailbox_policy(sender, instance, **kwargs):
+    """Remove Amavis policy for a mailbox."""
+    pm.delete_user_and_policy(instance.full_address)
+
+
+@receiver(signals.post_save, sender=admin_models.AliasRecipient)
+def setup_mailbox_alias_policy(sender, instance, created, **kwargs):
+    """Setup Amavis policy for an alias recipient.
+
+    FIXME: how to deal with distibution lists ?
+    """
+    if created:
+        pm.setup_mailbox_alias_policy(instance)
+
+
+@receiver(signals.pre_delete, sender=admin_models.Alias)
+def remove_alias_policy(sender, instance, **kwargs):
+    """Remove Amavis policy for a mailbox alias.
+    The on delete signal watches Alias because it's deleted before
+    AliasRecipient and it's Alias.address we need."""
+    pm.delete_user_and_policy(
+        instance.address,
+        priority=policy_models.User.Priority.USER_ALIAS
+    )

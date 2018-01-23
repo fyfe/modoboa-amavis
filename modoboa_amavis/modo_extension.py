@@ -14,13 +14,13 @@ from __future__ import unicode_literals
 
 from django.utils.translation import ugettext_lazy
 
-from modoboa.admin.models import Domain
 from modoboa.core.extensions import ModoExtension, exts_pool
 from modoboa.parameters import tools as param_tools
 
-from . import __version__
-from .lib import create_user_and_policy, create_user_and_use_policy
-from . import forms
+from modoboa_amavis import __version__, forms
+from modoboa_amavis.lib import policy_management as pm
+from modoboa_amavis.models.policy import User
+from modoboa_amavis.utils import smart_bytes
 
 
 class Amavis(ModoExtension):
@@ -38,13 +38,15 @@ class Amavis(ModoExtension):
         param_tools.registry.add(
             "user", forms.UserSettings, ugettext_lazy("Quarantine"))
 
+        if not User.objects.filter(email=smart_bytes("@.")).exists():
+            # either a new install or migrating from <= 1.1.3
+            # modoboa-amavis models are unmanaged so we can't use Django
+            # migrations, this needs to be done manually.
+            pm.migrate_policy_setup()
+
     def load_initial_data(self):
-        """Create records for existing domains and co."""
-        for dom in Domain.objects.all():
-            policy = create_user_and_policy("@{0}".format(dom.name))
-            for domalias in dom.domainalias_set.all():
-                domalias_pattern = "@{0}".format(domalias.name)
-                create_user_and_use_policy(domalias_pattern, policy)
+        """Create initial data for new install."""
+        pm.create_catachall()
 
 
 exts_pool.register_extension(Amavis)
