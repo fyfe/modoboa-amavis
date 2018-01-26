@@ -3,25 +3,16 @@
 from __future__ import unicode_literals
 
 from functools import wraps
-import re
-import socket
-import string
-import struct
 
 import idna
 
+from django.contrib.auth.views import redirect_to_login
 from django.urls import reverse
 from django.utils import six
-from django.utils.translation import ugettext as _
-
-from django.contrib.auth.views import redirect_to_login
 
 from modoboa.lib.email_utils import split_address, split_local_part
-from modoboa.lib.exceptions import InternalError
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
-
-from modoboa_amavis.utils import smart_bytes
 
 
 def selfservice(ssfunc=None):
@@ -48,45 +39,6 @@ def selfservice(ssfunc=None):
             return ssfunc(request, *args, **kwargs)
         return wrapped_f
     return decorator
-
-
-class AMrelease(object):
-    def __init__(self):
-        conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
-        try:
-            if conf["am_pdp_mode"] == "inet":
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.connect((conf["am_pdp_host"], conf["am_pdp_port"]))
-            else:
-                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                self.sock.connect(conf["am_pdp_socket"])
-        except socket.error as err:
-            raise InternalError(
-                _("Connection to amavis failed: %s" % str(err))
-            )
-
-    def decode(self, answer):
-        def repl(match):
-            return struct.pack("B", string.atoi(match.group(0)[1:], 16))
-
-        return re.sub(br"%([0-9a-fA-F]{2})", repl, answer)
-
-    def __del__(self):
-        self.sock.close()
-
-    def sendreq(self, mailid, secretid, recipient, *others):
-        self.sock.send(smart_bytes("""request=release
-mail_id=%s
-secret_id=%s
-quar_type=Q
-recipient=%s
-
-""" % (mailid, secretid, recipient)))
-        answer = self.sock.recv(1024)
-        answer = self.decode(answer)
-        if re.search(br"250 [\d\.]+ Ok", answer):
-            return True
-        return False
 
 
 class QuarantineNavigationParameters(NavigationParameters):

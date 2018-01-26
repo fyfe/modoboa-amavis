@@ -6,15 +6,13 @@ Amavis quarantine views.
 
 from __future__ import unicode_literals
 
-import six
-
-from django.urls import reverse
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseRedirect, Http404
 from django.shortcuts import render
 from django.template import loader
+from django.urls import reverse
+from django.utils import six
 from django.utils.translation import ugettext as _, ungettext
-
-from django.contrib.auth.decorators import login_required
 
 from modoboa.admin.models import Mailbox, Domain
 from modoboa.lib.exceptions import BadRequest
@@ -22,23 +20,24 @@ from modoboa.lib.paginator import Paginator
 from modoboa.lib.web_utils import getctx, render_to_json_response
 from modoboa.parameters import tools as param_tools
 
+from modoboa_amavis import constants
+from modoboa_amavis.templatetags.amavis_tags import (
+    quar_menu, viewm_menu
+)
+from modoboa_amavis.forms import LearningRecipientForm
+from modoboa_amavis.lib.amavis_release_client import (
+    AmavisReleaseClient, AmavisError
+)
 from modoboa_amavis.lib.spamassassin_client import (
     SpamAssassinClient, SpamAssassinError, PolicyError
 )
-
-from . import constants
-from .templatetags.amavis_tags import (
-    quar_menu, viewm_menu
+from modoboa_amavis.utils import smart_bytes, smart_text
+from modoboa_amavis.lib import (
+    QuarantineNavigationParameters, manual_learning_enabled, selfservice
 )
-from .lib import (
-    selfservice, AMrelease, QuarantineNavigationParameters,
-    manual_learning_enabled
-)
-from .forms import LearningRecipientForm
-from .models import Msgrcpt
-from .sql_connector import SQLconnector
-from .sql_email import SQLemail
-from .utils import smart_bytes, smart_text
+from modoboa_amavis.models import Msgrcpt
+from modoboa_amavis.sql_connector import SQLconnector
+from modoboa_amavis.sql_email import SQLemail
 
 
 def empty_quarantine():
@@ -273,16 +272,23 @@ def release_selfservice(request, mail_id):
         raise BadRequest(_("Invalid request"))
     if not param_tools.get_global_parameter("user_can_release"):
         connector.set_msgrcpt_status(rcpt, mail_id, "p")
+        status = 200
         msg = _("Request sent")
     else:
-        amr = AMrelease()
-        result = amr.sendreq(mail_id, secret_id, rcpt)
-        if result:
-            connector.set_msgrcpt_status(rcpt, mail_id, "R")
-            msg = _("Message released")
+        try:
+            with AmavisReleaseClient(request.user) as ar_client:
+                ar_client.release(msgrcpt.mail.mail_id, msgrcpt.mail.secret_id)
+                connector.set_msgrcpt_status(
+                    smart_text(msgrcpt.rid.email), msgrcpt.mail.mail_id, "R"
+                )
+        except AmavisError as e:
+            status = 400
+            msg = str(e)
         else:
-            raise BadRequest(result)
-    return render_to_json_response(msg)
+            status = 200
+            msg = _("Message released")
+
+    return render_to_json_response(msg, status=status)
 
 
 @selfservice(release_selfservice)
@@ -314,26 +320,21 @@ def release(request, mail_id):
             "url": QuarantineNavigationParameters(request).back_to_listing()
         })
 
-    amr = AMrelease()
-    error = None
-    for rcpt in msgrcpts:
-        result = amr.sendreq(
-            rcpt.mail.mail_id, rcpt.mail.secret_id, rcpt.rid.email
-        )
-        if result:
-            connector.set_msgrcpt_status(
-                smart_text(rcpt.rid.email), rcpt.mail.mail_id, "R")
-        else:
-            error = result
-            break
-
-    if not error:
+    try:
+        with AmavisReleaseClient(request.user) as ar_client:
+            for rcpt in msgrcpts:
+                ar_client.release(rcpt.mail.mail_id, rcpt.mail.secret_id)
+                connector.set_msgrcpt_status(
+                    smart_text(rcpt.rid.email), rcpt.mail.mail_id, "R"
+                )
+    except AmavisError as e:
+        status = 400
+        message = str(e)
+    else:
+        status = 200
         message = ungettext("%(count)d message released successfully",
                             "%(count)d messages released successfully",
                             len(mail_id)) % {"count": len(mail_id)}
-    else:
-        message = error
-    status = 400 if error else 200
     return render_to_json_response({
         "message": message,
         "url": QuarantineNavigationParameters(request).back_to_listing()

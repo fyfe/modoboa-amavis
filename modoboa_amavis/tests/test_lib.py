@@ -3,11 +3,15 @@
 from __future__ import unicode_literals
 
 import os
+import socket
+
+import mock
 
 from django.test import override_settings
 from django.utils.translation import ugettext as _
 
 from modoboa.admin import factories as admin_factories
+from modoboa.core import models as core_models
 from modoboa.core import factories as core_factories
 from modoboa.lib.tests import ModoTestCase
 
@@ -15,8 +19,11 @@ from modoboa_amavis.lib import make_query_args
 from modoboa_amavis.lib.spamassassin_client import (
     PolicyError, SpamAssassinClient, SpamAssassinError
 )
+from modoboa_amavis.lib.amavis_release_client import (
+    AmavisError, AmavisReleaseClient
+)
 from modoboa_amavis.models import policy as policy_models
-from modoboa_amavis.utils import smart_text
+from modoboa_amavis.utils import smart_bytes, smart_text
 
 
 class MakeQueryArgsTests(ModoTestCase):
@@ -197,3 +204,52 @@ class SpamAssassinClientNoPoliciesTests(ModoTestCase):
             % {"email": "user@example.com"}
         )
         self.assertEqual(smart_text(ctx.exception), expected_error)
+
+
+class AmavisReleaseClientTests(ModoTestCase):
+
+    """Tests for AmavisReleaseClient."""
+
+    @classmethod
+    def setUpTestData(cls):  # noqa:N802
+        """Create initial test data."""
+        super(AmavisReleaseClientTests, cls).setUpTestData()
+        cls.admin = core_models.User.objects.get(username="admin")
+
+    @mock.patch("socket.socket")
+    def test_connection_failure(self, mock_socket):
+        """Check AmavisError is raised on connection failure."""
+        mock_socket.side_effect = socket.error()
+        with self.assertRaises(AmavisError):
+            AmavisReleaseClient(self.admin)
+
+    @mock.patch("socket.socket")
+    def test_release_with_user(self, mock_socket):
+        """Check message release with user."""
+        mock_socket.return_value.recv.return_value = (
+            b"250 2.5.0 Ok,%20id=MWZmu9Di,%20continue%20delivery\r\n"
+        )
+        with AmavisReleaseClient(self.admin) as ar_client:
+            ar_client.release(smart_bytes("mail_id"), smart_bytes("secret_id"))
+
+    @mock.patch("socket.socket")
+    def test_release_with_rcpt(self, mock_socket):
+        """Check message release with recipient (self service)."""
+        mock_socket.return_value.recv.return_value = (
+            b"250 2.5.0 Ok,%20id=MWZmu9Di,%20continue%20delivery\r\n"
+        )
+        with AmavisReleaseClient("user@example.com") as ar_client:
+            ar_client.release("mail_id", "secret_id")
+
+    @mock.patch("socket.socket")
+    def test_release_failure(self, mock_socket):
+        """Check AmavisError is raised on release failure."""
+        mock_socket.return_value.recv.return_value = (
+            b"451 4.5.0 Error%20in%20processing,%20id=mail_id\r\n"
+        )
+        with self.assertRaises(AmavisError) as ctx:
+            with AmavisReleaseClient(self.admin) as ar_client:
+                ar_client.release("mail_id", "secret_id")
+
+        expected_error = "451 4.5.0 Error in processing, id=mail_id\r\n"
+        self.assertEqual(ctx.exception.error, expected_error)
