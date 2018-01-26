@@ -73,12 +73,8 @@ def setup_domain_policy(domain):
     user, created_ = create_user_and_policy(
         name, User.Priority.DOMAIN, domain.name
     )
-    if (
-        param_tools.get_global_parameter("manual_learning")
-        and param_tools.get_global_parameter("domain_level_learning")
-       ):
-        user.policy.sa_username = name
-        user.policy.save(update_fields=["sa_username"])
+    user.policy.sa_username = name
+    user.policy.save(update_fields=["sa_username"])
 
 
 def setup_domain_alias_policy(domain_alias):
@@ -98,12 +94,8 @@ def setup_mailbox_policy(mailbox):
     user, created_ = create_user_and_policy(
         name, User.Priority.USER, mailbox.full_address
     )
-    if (
-        param_tools.get_global_parameter("manual_learning")
-        and param_tools.get_global_parameter("user_level_learning")
-       ):
-        user.policy.sa_username = name
-        user.policy.save(update_fields=["sa_username"])
+    user.policy.sa_username = name
+    user.policy.save(update_fields=["sa_username"])
 
 
 def setup_mailbox_alias_policy(alias):
@@ -134,11 +126,6 @@ def setup_mailbox_alias_policy(alias):
 
 def migrate_policy_setup():
     """Migrate from =< 1.1.3"""
-    manual_learning = param_tools.get_global_parameter("manual_learning")
-    domain_level_learning = param_tools.get_global_parameter(
-        "domain_level_learning"
-    )
-
     create_catachall()
 
     for domain in admin_models.Domain.objects.all():
@@ -152,10 +139,7 @@ def migrate_policy_setup():
             user.fullname = domain.name
             user.save(update_fields=["priority", "fullname"])
             user.policy.policy_name = domain.name[:32]
-            if manual_learning and domain_level_learning:
-                user.policy.sa_username = name
-            else:
-                user.policy.sa_username = None
+            user.policy.sa_username = name
             user.policy.save(update_fields=["policy_name", "sa_username"])
 
     # existing domain alias, mailbox and alias User and Policy objects can be
