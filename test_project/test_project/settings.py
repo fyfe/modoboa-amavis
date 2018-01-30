@@ -275,22 +275,36 @@ try:
 except AttributeError:
     from modoboa_amavis.settings import *  # noqa
 
-
-MIGRATION_MODULES = {
-    "modoboa_amavis": None
-}
-
-TEST_RUNNER = "modoboa_amavis.test_runners.UnManagedModelTestRunner"
-
-# We force sqlite backend for tests because the generated database is
-# not the same as the one provided by amavis...
-DATABASES.update({  # noqa
-    "amavis": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": "amavis.db",
-        "PORT": "",
-        "ATOMIC_REQUESTS": True,
-    },
-})
-# sqlite defaults to UTF-8
-AMAVIS_DEFAULT_DATABASE_ENCODING = "UTF-8"
+_amavis_db = DATABASES["default"].copy()  # NOQA:F405
+if "postgresql" in _amavis_db["ENGINE"]:  # NOQA:F405
+    _amavis_db.update({
+        "NAME": "test_amavis",
+        "OPTIONS": {
+                "client_encoding": "UTF8",
+        },
+        "TEST": {
+            "CHARSET": "UTF8",
+        },
+    })
+    DATABASES["amavis"] = _amavis_db  # NOQA:F405
+    AMAVIS_DEFAULT_DATABASE_ENCODING = "UTF8"
+elif "mysql" in DATABASES["default"]["ENGINE"]:  # NOQA:F405
+    _amavis_db.update({
+        "NAME": "test_amavis",
+        "OPTIONS": {
+            "init_command": (
+                "SET foreign_key_checks = 0;"
+                "SET sql_mode = STRICT_TRANS_TABLES;"
+                "SET innodb_strict_mode = ON;"
+            ),
+            "charset": "utf8mb4",
+        },
+        "TEST": {
+            "CHARSET": "utf8",
+            "COLLATION": "utf8_unicode_ci",
+        },
+    })
+    DATABASES["amavis"] = _amavis_db  # NOQA:F405
+    AMAVIS_DEFAULT_DATABASE_ENCODING = "utf8"
+else:
+    raise Exception("%s engine is not supported by modoboa-amavis")
