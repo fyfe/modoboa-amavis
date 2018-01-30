@@ -31,6 +31,7 @@ install:
 
 script:
   - cd test_project
+  - python setup_test_database.py
   - coverage run --source ../modoboa_amavis manage.py test modoboa_amavis
 
 after_success:
