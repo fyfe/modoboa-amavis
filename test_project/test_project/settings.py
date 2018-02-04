@@ -293,7 +293,6 @@ elif "mysql" in DATABASES["default"]["ENGINE"]:  # NOQA:F405
         "NAME": "test_amavis",
         "OPTIONS": {
             "init_command": (
-                "SET foreign_key_checks = 0;"
                 "SET sql_mode = STRICT_TRANS_TABLES;"
                 "SET innodb_strict_mode = ON;"
             ),
