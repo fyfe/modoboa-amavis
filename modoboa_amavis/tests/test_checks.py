@@ -19,7 +19,6 @@ class CheckSessionCookieSecureTest(TestCase):
             [settings_checks.W001]
         )
 
-    @override_settings(AMAVIS_DEFAULT_DATABASE_ENCODING="UTF-8")
     def test_amavis_database_encoding_correct(self):
         """
         If AMAVIS_DEFAULT_DATABASE_ENCODING is correct, there's no warning.
