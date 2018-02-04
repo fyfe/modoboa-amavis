@@ -9,7 +9,7 @@ import time
 
 import factory
 
-from . import models
+from . import lib, models
 from .utils import smart_bytes
 
 SPAM_BODY = """X-Envelope-To: <{rcpt}>
@@ -88,9 +88,11 @@ class MaddrFactory(factory.DjangoModelFactory):
         model = models.Maddr
         django_get_or_create = ("email", )
 
-    id = factory.Sequence(lambda n: n)  # NOQA:A003
     email = factory.Sequence(lambda n: "user_{}@domain.test".format(n))
-    domain = "test.domain"
+    domain = factory.LazyAttribute(
+        lambda o:
+            ".".join(lib.split_address(o.email)[1].split(".")[::-1])
+    )
 
 
 class MsgsFactory(factory.DjangoModelFactory):
@@ -99,12 +101,13 @@ class MsgsFactory(factory.DjangoModelFactory):
     class Meta:
         model = models.Msgs
 
-    mail_id = factory.Sequence(lambda n: smart_bytes("mailid{}".format(n)))
-    secret_id = factory.Sequence(lambda n: smart_bytes("id{}".format(n)))
+    mail_id = factory.Sequence(lambda n: "mailid{}".format(n))
+    secret_id = factory.Sequence(lambda n: "id{}".format(n))
     sid = factory.SubFactory(MaddrFactory)
     client_addr = "127.0.0.1"
     originating = "Y"
     dsn_sent = "N"
+    from_addr = factory.LazyAttribute(lambda o: o.sid.email)
     subject = factory.Sequence(lambda n: "Test message {}".format(n))
     time_num = factory.LazyAttribute(lambda o: int(time.time()))
     time_iso = factory.LazyAttribute(
@@ -118,10 +121,7 @@ class MsgrcptFactory(factory.DjangoModelFactory):
     class Meta:
         model = models.Msgrcpt
 
-    rseqnum = 1
     is_local = "Y"
-    bl = "N"
-    wl = "N"
     mail = factory.SubFactory(MsgsFactory)
     rid = factory.SubFactory(MaddrFactory)
 
@@ -132,18 +132,18 @@ class QuarantineFactory(factory.DjangoModelFactory):
     class Meta:
         model = models.Quarantine
 
-    chunk_ind = 1
     mail = factory.SubFactory(MsgsFactory)
 
 
 def create_quarantined_msg(rcpt, sender, rs, body, **kwargs):
     """Create a quarantined msg."""
+    msg = MsgsFactory(
+        sid=MaddrFactory(email=sender),
+    )
     msgrcpt = MsgrcptFactory(
         rs=rs,
-        rid__email=smart_bytes(rcpt),
-        rid__domain="com.test",  # FIXME
-        mail__sid__email=smart_bytes(sender),
-        mail__sid__domain="",  # FIXME
+        rid=MaddrFactory(email=rcpt),
+        mail=msg,
         **kwargs
     )
     QuarantineFactory(
