@@ -6,7 +6,9 @@ from __future__ import print_function, unicode_literals
 import time
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.db.models import Count
+from django.utils.encoding import force_bytes
 
 from modoboa.parameters import tools as param_tools
 from ...models import Maddr, Msgrcpt, Msgs
@@ -31,6 +33,7 @@ class Command(BaseCommand):
             return
         print(msg)
 
+    @transaction.atomic
     def handle(self, *args, **options):
         Amavis().load()
         if options["debug"]:
@@ -47,20 +50,50 @@ class Command(BaseCommand):
             flags += ["R"]
 
         self.__vprint("Deleting marked messages...")
-        ids = Msgrcpt.objects.filter(rs__in=flags).values("mail_id").distinct()
-        for msg in Msgs.objects.filter(mail_id__in=ids):
-            if not msg.msgrcpt_set.exclude(rs__in=flags).count():
-                msg.delete()
+        mail_ids = (
+            force_bytes(mail_id)
+            for mail_id in (
+                Msgrcpt.objects
+                .filter(rs__in=flags)
+                .values_list("mail_id", flat=True)
+                .distinct()
+            )
+        )
+        total_deleted, deleted_by_model_ = (
+            Msgs.objects.filter(mail_id__in=mail_ids).delete()
+        )
+        self.__vprint("%d marked messages deleted" % total_deleted)
 
         self.__vprint(
             "Deleting messages older than {} days...".format(
                 conf["max_messages_age"]))
         limit = int(time.time()) - (conf["max_messages_age"] * 24 * 3600)
-        Msgs.objects.filter(time_num__lt=limit).delete()
+        mail_ids = (
+            force_bytes(mail_id)
+            for mail_id in (
+                Msgs.objects
+                .filter(time_num__lt=limit)
+                .values_list("mail_id", flat=True)
+                .distinct()
+            )
+        )
+        total_deleted, deleted_by_model_ = (
+            Msgs.objects.filter(mail_id__in=mail_ids).delete()
+        )
+        self.__vprint(
+            "%d messages older than %s days deleted" %
+            (total_deleted, conf["max_messages_age"])
+        )
 
         self.__vprint("Deleting unreferenced e-mail addresses...")
-        Maddr.objects.annotate(
-            msgs_count=Count("msgs"), msgrcpt_count=Count("msgrcpt")
-        ).filter(msgs_count=0, msgrcpt_count=0).delete()
+        total_deleted, deleted_by_model_ = (
+            Maddr.objects
+            .annotate(msgs_count=Count("msgs"), msgrcpt_count=Count("msgrcpt"))
+            .filter(msgs_count=0, msgrcpt_count=0)
+            .delete()
+        )
+        self.__vprint(
+            "%d unreferenced e-mail addresses deleted" % total_deleted
+        )
 
         self.__vprint("Done.")
