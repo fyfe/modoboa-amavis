@@ -1,0 +1,46 @@
+#th-recipient {
+    width: 17%;
+}
+
+#th-sender,
+#th-subject {
+    width: 25%;
+}
+
+#th-type,
+#quarantine_list > .#td-type {
+    text-align: center;
+}
+
+#quarantine_list > tbody > tr[data-status] {
+    cursor: pointer;
+}
+
+#quarantine_list > tbody > tr[data-status=R] {
+    background-color: #d9edf7;
+}
+
+#quarantine_list > tbody > tr[data-status=p] {
+    background-color: #fcf8e3;
+}
+
+#quarantine_list > tbody > tr[data-status=D] {
+    background-color: #f2dede;
+}
+
+#quarantine_list > tbody > tr[data-status=" "] > td {
+    font-weight: bold;
+}
+
+#quarantine_nav {
+    margin: 0.5em;
+}
+
+#quarantined_message {
+    margin: 0.5em;
+}
+
+#headers > dd,
+#full_headers > dd {
+    overflow-wrap: break-word;
+}

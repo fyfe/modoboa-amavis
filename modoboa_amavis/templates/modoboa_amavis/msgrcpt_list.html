@@ -1,0 +1,68 @@
+{% extends "fluid.html" %}
+{% load amavis_tags humanize i18n static %}
+
+{% block pagetitle %}{% trans "Quarantine management" %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'modoboa_amavis/css/quarantine2.css' %}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/js-cookie@2/src/js.cookie.min.js"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/polyfill.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.quarantine.js' %}"></script>
+<script>
+(function(app) {
+    "use strict";
+
+    app.quarantine
+        .set_page_urls({
+            "index": "{% url 'modoboa_amavis:index' %}",
+            "view": "{% url 'modoboa_amavis:quarantine_message' mail_id='_MAIL_ID_' %}",
+            "list": "{% url 'api:quarantine-list' %}",
+            "detail": "{% url 'api:quarantine-detail' mail_id='_MAIL_ID_' %}",
+            "delete": "{% url 'api:quarantine-delete' mail_id='_MAIL_ID_' %}",
+            "release": "{% url 'api:quarantine-release' mail_id='_MAIL_ID_' %}",
+            "mark_as_ham": "{% url 'api:quarantine-mark-as-ham' mail_id='_MAIL_ID_' %}",
+            "mark_as_spam": "{% url 'api:quarantine-mark-as-spam' mail_id='_MAIL_ID_' %}",
+        })
+        .init_list_view();
+
+}(ModoboaAmavis));
+</script>
+{% endblock %}
+
+{% block container_content %}
+{% if object_list %}
+<table id="quarantine_list" class="table table-hover">
+    <thead>
+        <tr>
+            <th id="th-commands"></th>
+            <th id="th-type">{% trans "Type" %}</th>
+            <th id="th-recipient">{% trans "To" %}</th>
+            <th id="th-sender">{% trans "From" %}</th>
+            <th id="th-subject">{% trans "Subject" %}</th>
+            <th id="th-date">{% trans "Date" %}</th>
+    </thead>
+    <tbody>
+{% for entry in object_list %}
+        <tr id="{{ entry.mail_id }}" data-status="{{ entry.status }}">
+            <td class="td-commands"></td>
+            <td class="td-type">
+                {{ entry.type | msgtype_to_html }}
+                <span class="badge">{{ entry.score|floatformat:"-2"|intcomma }}</span>
+                {{ entry.status | msgstatus_to_html }}
+            </td>
+            <td class="td-recipient" title="{{ entry.recipient }}">{{ entry.recipient|truncatechars:30 }}</td>
+            <td class="td-sender" title="{{ entry.sender }}">{{ entry.sender|truncatechars:40 }}</td>
+            <td class="td-subject" title="{{ entry.subject }}">{{ entry.subject|truncatechars:40 }}</td>
+            <td class="td-date">{{ entry.date|date:"SHORT_DATETIME_FORMAT" }}</td>
+        </tr>
+{% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="alert alert-info">{% trans "Empty quarantine" %}</div>
+{% endif %}
+{% endblock %}

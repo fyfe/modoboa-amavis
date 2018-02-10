@@ -6,27 +6,34 @@ Amavis quarantine views.
 
 from __future__ import unicode_literals
 
+import datetime
+
 import six
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
 from django.template import loader
 from django.urls import reverse
 from django.utils.translation import ugettext as _, ungettext
+from django.views.generic.detail import DetailView
+from django.views.generic.list import ListView
 
 from modoboa.admin.models import Domain, Mailbox
 from modoboa.lib.exceptions import BadRequest
 from modoboa.lib.paginator import Paginator
 from modoboa.lib.web_utils import getctx, render_to_json_response
 from modoboa.parameters import tools as param_tools
+from modoboa_amavis.lib import cleanup_email_address, make_query_args
+from modoboa_amavis.utils import ConvertFrom, fix_utf8_encoding
 from . import constants
 from .forms import LearningRecipientForm
 from .lib import (
     AMrelease, OLDSpamassassinClient, QuarantineNavigationParameters,
     manual_learning_enabled, selfservice
 )
-from .models import Msgrcpt
+from .models import Msgrcpt, Quarantine
 from .sql_connector import SQLconnector
 from .sql_email import SQLemail
 from .templatetags.amavis_tags import quar_menu, viewm_menu
@@ -437,3 +444,178 @@ def process(request):
 
     if request.POST["action"] == "mark_as_ham":
         return mark_messages(request, ids, "ham")
+
+
+class QuarantineListView(ListView):
+
+    model = "modoboa_amavis.models.Msgrcpt"
+    http_method_names = ["get"]
+    ordering = "-mail__time_num"
+    paginate_by = 10
+
+    def get_queryset(self):
+        paginate_by = self.request.user.parameters.get_value(
+            "messages_per_page", raise_exception=False
+        )
+        if paginate_by is not None:
+            self.paginate_by = int(paginate_by)
+
+        queryset = Msgrcpt.objects.all()
+
+        filter_ = (
+            self._apply_status_filter() &
+            self._apply_user_filter() &
+            Q(mail__in=Quarantine.objects.filter(chunk_ind=1).values("mail_id"))
+        )
+
+        queryset = (
+            queryset
+            .annotate(str_email=ConvertFrom("rid__email"))
+            .filter(filter_)
+        )
+
+        ordering = self.get_ordering()
+        if ordering:
+            if isinstance(ordering, six.string_types):
+                ordering = (ordering,)
+            queryset = queryset.order_by(*ordering)
+
+        return queryset
+
+    def _apply_status_filter(self):
+        view_requests = (
+            self.request.GET.get("viewrequests", "0") == "1"
+        )
+        if view_requests:
+            return Q(rs="p")
+        else:
+            return ~ Q(rs="D") & ~ Q(content="C")
+
+    def _apply_user_filter(self):
+        filter_ = Q(
+            mail__in=Quarantine.objects.filter(chunk_ind=1).values("mail_id")
+        )
+        if self.request.user.role == "SuperAdmins":
+            pass
+        elif self.request.user.role == "DomainAdmins":
+            domains = (
+                Domain.objects
+                .get_for_admin(self.request.user)
+                .values_list("name", flat=True)
+            )
+            domains = [
+                ".".join(domain.split(".")[::-1])
+                for domain in domains
+            ]
+            filter_ = Q(rid__domain__in=domains)
+        else:
+            rcpts = [self.request.user.email]
+            if hasattr(self.request.user, "mailbox"):
+                rcpts += self.request.user.mailbox.alias_addresses
+            query_rcpts = []
+            for rcpt in rcpts:
+                query_rcpts += make_query_args(
+                    rcpt, exact_extension=False, wildcard=".*"
+                )
+            re = "^(%s)$" % "|".join(query_rcpts)
+            filter_ = Q(str_email__regex=re)
+        return filter_
+
+    def get_context_data(self, **kwargs):
+        context = super(QuarantineListView, self).get_context_data(**kwargs)
+
+        object_list = []
+        for message in context["msgrcpt_list"]:
+            object_list.append({
+                "sender": cleanup_email_address(
+                    fix_utf8_encoding(message.mail.from_addr)
+                ),
+                "recipient": message.rid.email,
+                "subject": fix_utf8_encoding(message.mail.subject),
+                "mail_id": message.mail_id,
+                "date": datetime.datetime.fromtimestamp(
+                    message.mail.time_num
+                ),
+                "type": message.content,
+                "score": message.bspam_level,
+                "status": message.rs,
+            })
+
+        del context["object_list"]
+        del context["msgrcpt_list"]
+        context["object_list"] = object_list
+
+        return context
+
+
+class QuarantineMessageView(DetailView):
+
+    model = "modoboa_amavis.models.Msgrcpt"
+    http_method_names = ["get"]
+    slug_field = "mail_id"
+    slug_url_kwarg = "mail_id"
+    pk_url_kwarg = "mail_id"
+
+    def get_queryset(self):
+        return (
+            Msgrcpt.objects
+            .all()
+            .annotate(str_email=ConvertFrom("rid__email"))
+            .filter(self._apply_user_filter())
+        )
+
+    def _apply_user_filter(self):
+        filter_ = Q()
+        if self.request.user.role == "SuperAdmins":
+            pass
+        elif self.request.user.role == "DomainAdmins":
+            domains = (
+                Domain.objects
+                .get_for_admin(self.request.user)
+                .values_list("name", flat=True)
+            )
+            domains = [
+                ".".join(domain.split(".")[::-1])
+                for domain in domains
+            ]
+            filter_ = Q(rid__domain__in=domains)
+        else:
+            rcpts = [self.request.user.email]
+            if hasattr(self.request.user, "mailbox"):
+                rcpts += self.request.user.mailbox.alias_addresses
+            query_rcpts = []
+            for rcpt in rcpts:
+                query_rcpts += make_query_args(
+                    rcpt, exact_extension=False, wildcard=".*"
+                )
+            re = "^(%s)$" % "|".join(query_rcpts)
+            filter_ = Q(str_email__regex=re)
+        return filter_
+
+    def get_context_data(self, **kwargs):
+        context = super(QuarantineMessageView, self).get_context_data(**kwargs)
+
+        email = SQLemail(context["object"].mail_id, dformat="plain")
+        full_headers = [
+            (name, email.get_header(email.msg, name))
+            for name in email.msg.keys()
+        ]
+        headers = {
+            header["name"]: header["value"]
+            for header in email.headers
+            if header["value"]
+        }
+        message = {
+            "mail_id": context["object"].mail_id,
+            "quarantine_type": email.qtype,
+            "quarantine_reason": email.qreason,
+            "headers": headers,
+            "full_headers": full_headers,
+            "body": email.body,
+        }
+
+        del context["object"]
+        del context["msgrcpt"]
+        context["message"] = message
+
+        return context

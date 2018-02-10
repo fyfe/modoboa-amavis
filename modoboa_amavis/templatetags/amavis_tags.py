@@ -138,3 +138,22 @@ def msgtype_to_html(msgtype):
     return mark_safe(
         "<span class=\"label label-{}\" title=\"{}\">{}</span>".format(
             color, constants.MESSAGE_TYPES[msgtype], msgtype))
+
+
+@register.filter
+def msgstatus_to_html(status):
+    """Transform a message status to a bootstrap label."""
+    if status == "R":
+        icon = "fa fa-mail-reply"
+        text = "Released"
+    elif status == "S":
+        icon = "fa fa-thumbs-down"
+        text = "Marked as spam"
+    elif status == "H":
+        icon = "fa fa-thumbs-up"
+        text = "Marked as non-spam"
+    else:
+        return ""
+    return mark_safe(
+        "<span class=\"{}\" title=\"{}\"></span>".format(icon, text)
+    )

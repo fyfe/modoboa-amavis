@@ -1,0 +1,83 @@
+{% extends "fluid.html" %}
+{% load amavis_tags humanize i18n static %}
+
+{% block pagetitle %}{% trans "Quarantine management" %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'modoboa_amavis/css/quarantine2.css' %}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/js-cookie@2/src/js.cookie.min.js"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/polyfill.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.quarantine.js' %}"></script>
+<script>
+(function(app) {
+    "use strict";
+
+    app.quarantine
+        .set_page_urls({
+            "index": "{% url 'modoboa_amavis:index' %}",
+            "view": "{% url 'modoboa_amavis:quarantine_message' mail_id='_MAIL_ID_' %}",
+            "list": "{% url 'api:quarantine-list' %}",
+            "detail": "{% url 'api:quarantine-detail' mail_id='_MAIL_ID_' %}",
+            "delete": "{% url 'api:quarantine-delete' mail_id='_MAIL_ID_' %}",
+            "release": "{% url 'api:quarantine-release' mail_id='_MAIL_ID_' %}",
+            "mark_as_ham": "{% url 'api:quarantine-mark-as-ham' mail_id='_MAIL_ID_' %}",
+            "mark_as_spam": "{% url 'api:quarantine-mark-as-spam' mail_id='_MAIL_ID_' %}",
+        })
+        .init_detail_view();
+
+}(ModoboaAmavis));
+</script>
+{% endblock %}
+
+{% block container_content %}
+<nav id="quarantine_nav">
+    <div class="btn-group" role="group" aria-label="...">
+        <button id="btn_return_to_list" type="button" class="btn btn-default"><span class="fa fa-arrow-left"></span> <span class="hidden-xs hidden-sm">{% trans "Back" %}</span></button>
+        <button id="btn_release" type="button" class="btn btn-success"><span class="fa fa-check"></span> <span class="hidden-xs hidden-sm">{% trans "Release" %}</span></button>
+        <button id="btn_delete" type="button" class="btn btn-danger"><span class="fa fa-trash"></span> <span class="hidden-xs hidden-sm">{% trans "Delete" %}</span></button>
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                <span class="fa fa-bookmark"></span>
+                <span class="hidden-xs hidden-sm">{% trans "Mark as" %}</span>
+                <span class="caret"></span>
+            </button>
+            <ul class="dropdown-menu">
+                <li><a href="#" id="btn_mark_as_ham" class="btn btn-default">{% trans "Ham" %}</a></li>
+                <li><a href="#" id="btn_mark_as_spam" class="btn btn-default">{% trans "Spam" %}</a></li>
+            </ul>
+        </div>
+        <button id="btn_view_full_headers" type="button" class="btn btn-default" data-view-full-headers="false" data-label-show="{% trans "View full headers" %}" data-label-hide="{% trans "Hide full headers" %}"><span class="fa fa-angle-double-down"></span> <span id="view_full_headers_label" class="hidden-xs hidden-sm">{% trans "View full headers" %}</span></button>
+    </div>
+</nav>
+<article id="quarantined_message" data-mail-id="{{ message.mail_id }}">
+    <section id="headers" class="headers">
+        <dl class="dl-horizontal">
+        {% for k, v in message.headers.items %}
+            <dt>{{ k }}</dt>
+            <dd>{{ v }}</dd>
+        {% endfor %}
+        </dl>
+    </section>
+    <section id="full_headers" class="headers hidden">
+        <dl class="dl-horizontal">
+        {% for k, v in message.full_headers %}
+            <dt>{{ k }}</dt>
+            <dd>{{ v }}</dd>
+        {% endfor %}
+        </dl>
+    </section>
+    {% if message.quarantine_reason|length > 0 %}
+    <section class="amavis-error alert alert-danger">
+        {% if message.quarantine_type|length > 0 %}<strong>{{ message.quarantine_type }}</strong> {% endif %}
+        {{ message.quarantine_reason }}
+    </section>
+    {% endif %}
+    <section class="body">
+        {{ message.body|safe }}
+    </section>
+</article>
+{% endblock %}
