@@ -5,6 +5,8 @@ from __future__ import unicode_literals
 from django.db import models
 from django.utils.translation import ugettext_lazy
 
+from modoboa_amavis.fields import BinaryCharField
+
 
 class Policy(models.Model):
     id = models.AutoField(primary_key=True)  # NOQA:A003
@@ -136,7 +138,7 @@ class Users(models.Model):
     id = models.AutoField(primary_key=True)  # NOQA:A003
     priority = models.IntegerField(default=7)
     policy = models.ForeignKey(Policy, on_delete=models.CASCADE)
-    email = models.CharField(unique=True, max_length=255)
+    email = BinaryCharField(unique=True, max_length=255)
     fullname = models.CharField(max_length=255, blank=True)
 
     class Meta:
@@ -147,7 +149,7 @@ class Users(models.Model):
 class Mailaddr(models.Model):
     id = models.AutoField(primary_key=True)  # NOQA:A003
     priority = models.IntegerField(default=7)
-    email = models.CharField(unique=True, max_length=255)
+    email = BinaryCharField(unique=True, max_length=255)
 
     class Meta:
         db_table = "mailaddr"

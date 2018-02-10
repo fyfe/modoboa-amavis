@@ -5,11 +5,13 @@ from __future__ import unicode_literals
 from django.conf import settings
 from django.db import models
 
+from modoboa_amavis.fields import BinaryCharField, BinaryForeignKey
+
 
 class Maddr(models.Model):
     partition_tag = models.IntegerField(default=0)
     id = models.AutoField(primary_key=True)  # NOQA:A003
-    email = models.CharField(max_length=255)
+    email = BinaryCharField(max_length=255)
     domain = models.CharField(max_length=255)
 
     class Meta:
@@ -20,8 +22,8 @@ class Maddr(models.Model):
 
 class Msgs(models.Model):
     partition_tag = models.IntegerField(default=0)
-    mail_id = models.CharField(max_length=12, primary_key=True)
-    secret_id = models.BinaryField(default=b"")
+    mail_id = BinaryCharField(max_length=12, primary_key=True)
+    secret_id = BinaryCharField(max_length=12)
     am_id = models.CharField(max_length=20)
     time_num = models.IntegerField()
     time_iso = models.CharField(max_length=16)
@@ -57,7 +59,7 @@ class Msgs(models.Model):
 
 class Msgrcpt(models.Model):
     partition_tag = models.IntegerField(default=0)
-    mail = models.ForeignKey(Msgs, primary_key=True, on_delete=models.CASCADE)
+    mail = BinaryForeignKey(Msgs, primary_key=True, on_delete=models.CASCADE)
     rseqnum = models.IntegerField(default=0)
     rid = models.ForeignKey(Maddr, db_column="rid", on_delete=models.CASCADE)
     is_local = models.CharField(max_length=1, default=" ")
@@ -78,7 +80,7 @@ class Msgrcpt(models.Model):
 
 class Quarantine(models.Model):
     partition_tag = models.IntegerField(default=0)
-    mail = models.ForeignKey(Msgs, primary_key=True, on_delete=models.CASCADE)
+    mail = BinaryForeignKey(Msgs, primary_key=True, on_delete=models.CASCADE)
     chunk_ind = models.IntegerField(default=1)
     mail_text = models.BinaryField()
 
