@@ -7,13 +7,12 @@ from __future__ import unicode_literals
 import datetime
 
 from django.db.models import Q
-from django.utils import six
+from django.utils.encoding import force_bytes
 
 from modoboa.admin.models import Domain
 from modoboa.lib.email_utils import decode
-
 from .lib import cleanup_email_address, make_query_args
-from .models import Maddr, Msgrcpt, Quarantine
+from .models import Msgrcpt, Quarantine
 from .utils import ConvertFrom, fix_utf8_encoding, smart_bytes, smart_text
 
 
@@ -190,30 +189,36 @@ class SQLconnector(object):
             emails.append(m)
         return emails
 
-    def get_recipient_message(self, address, mailid):
+    def get_recipient_message(self, address, mail_id):
         """Retrieve a message for a given recipient.
         """
-        assert isinstance(address, six.text_type),\
-            "address should be of type %s" % six.text_type.__name__
+        return (
+            Msgrcpt.objects
+            .get(
+                mail=force_bytes(mail_id),
+                rid__email=force_bytes(address)
+            )
+        )
 
-        return Msgrcpt.objects\
-            .annotate(str_email=ConvertFrom("rid__email"))\
-            .get(mail=mailid, str_email=address)
-
-    def set_msgrcpt_status(self, address, mailid, status):
+    def set_msgrcpt_status(self, address, mail_id, status):
         """Change the status (rs field) of a message recipient.
 
         :param string status: status
         """
-        assert isinstance(address, six.text_type),\
-            "address should be of type %s" % six.text_type.__name__
-        addr = Maddr.objects\
-            .annotate(str_email=ConvertFrom("email"))\
-            .get(str_email=address)
-        self._exec(
-            "UPDATE msgrcpt SET rs=%s WHERE mail_id=%s AND rid=%s",
-            [status, mailid, addr.id]
-        )
+        try:
+            message = Msgrcpt.objects.get(
+                mail_id=force_bytes(mail_id),
+                rid__email=force_bytes(address)
+            )
+            message.rs = status
+            message.save(update_fields=["rs"])
+        except Msgrcpt.DoesNotExist:
+            print(
+                "SQLconnector", "set_msgrcpt_status",
+                "address", address,
+                "mailid", mail_id,
+                "status", status,
+            )
 
     def get_domains_pending_requests(self, domains):
         """Retrieve pending release requests for a list of domains."""
