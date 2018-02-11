@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db.models.expressions import Func
 from django.utils import six
 from django.utils.encoding import (
+    force_bytes as django_force_bytes, force_text as django_force_text,
     smart_bytes as django_smart_bytes, smart_str as django_smart_str,
     smart_text as django_smart_text
 )
@@ -36,6 +37,12 @@ def smart_bytes(value, *args, **kwargs):
     return django_smart_bytes(value, *args, **kwargs)
 
 
+def force_bytes(value, *args, **kwargs):
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    return django_force_bytes(value, *args, **kwargs)
+
+
 def smart_str(value, *args, **kwargs):
     if isinstance(value, memoryview):
         value = value.tobytes()
@@ -46,6 +53,12 @@ def smart_text(value, *args, **kwargs):
     if isinstance(value, memoryview):
         value = value.tobytes()
     return django_smart_text(value, *args, **kwargs)
+
+
+def force_text(value, *args, **kwargs):
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    return django_force_text(value, *args, **kwargs)
 
 
 def fix_utf8_encoding(value):
