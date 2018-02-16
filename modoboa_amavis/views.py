@@ -23,7 +23,7 @@ from modoboa.parameters import tools as param_tools
 from . import constants
 from .forms import LearningRecipientForm
 from .lib import (
-    AMrelease, QuarantineNavigationParameters, SpamassassinClient,
+    AMrelease, OLDSpamassassinClient, QuarantineNavigationParameters,
     manual_learning_enabled, selfservice
 )
 from .models import Msgrcpt
@@ -346,7 +346,7 @@ def mark_messages(request, selection, mtype, recipient_db=None):
         )
     selection = check_mail_id(request, selection)
     connector = SQLconnector()
-    saclient = SpamassassinClient(request.user, recipient_db)
+    saclient = OLDSpamassassinClient(request.user, recipient_db)
     for item in selection:
         rcpt, mail_id = item.split()
         content = connector.get_mail_content(mail_id)

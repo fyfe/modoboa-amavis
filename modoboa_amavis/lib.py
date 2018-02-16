@@ -143,6 +143,220 @@ class AmavisReleaseError(Exception):
         self.amavis_error = amavis_error
 
 
+class SpamAssassinClient(object):
+    """Learn ham/spam using SpamAssassin.
+
+    SpamAssassin will use the database defined in Policy.sa_username
+
+    This can be used as a context manager, when done it will call sync for any
+    databases that were modified.
+
+    with SpamAssassinClient(user, recipient_db) as sac:
+        sac.learn(mark_as, rcpt, message)
+    """
+    _policy_cache = {}
+    _db_to_sync = []
+    _setup_cache = []
+
+    def __init__(self, user, recipient_db):
+        self.user = user
+        self.recipient_db = recipient_db
+
+        conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
+        self._sa_is_local = conf["sa_is_local"]
+        self._spamd_host = conf["spamd_address"]
+        self._spamd_port = conf["spamd_port"]
+        self._manual_learning = conf["manual_learning"]
+        self._domain_level_learning = conf["domain_level_learning"]
+        self._user_level_learning = conf["user_level_learning"]
+        self._default_username = conf["default_user"]
+
+        search_path = getattr(settings, "SA_LOOKUP_PATH", [])
+        self._command_name = "sa-learn" if conf["sa_is_local"] else "spamc"
+        # TODO: replace with modoboa.lib.sysutils.which
+        self._command = self._find_command(
+            self._command_name, search_path=search_path)
+        if self._command is None:
+            raise SpamAssassinError(
+                _("Failed to find %(command)s")
+                % {"command": self._command_name}
+            )
+
+    def learn(self, mark_as, rcpt, message):
+        if mark_as not in ["ham", "spam"]:
+            raise ValueError("mark_as should be either ham or spam")
+
+        if not self._manual_learning:
+            raise SpamAssassinError(_("Manual learning is disabled."))
+
+        sa_username = self._get_sa_username(rcpt)
+        self._learn(mark_as, sa_username, message)
+        return sa_username
+
+    def _sync(self, username):
+        if not self._sa_is_local:
+            return
+
+        command = [
+            self._command,
+            "-u", username,
+            "--sync"
+        ]
+
+        return_code, output = exec_cmd(command)
+        if return_code != 0:
+            raise SpamAssassinError(
+                _("unable to sync SpamAssassin database for %(username)s")
+                % {"username": username},
+                username=username
+            )
+
+    def _find_command(self, command_name, search_path=None):
+        """Search for the sa-learn/spamc command."""
+        def is_exe(fpath):
+            return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+        fpath, fname = os.path.split(command_name)
+        if fpath:
+            if is_exe(command_name):
+                return command_name
+        else:
+            if not search_path:
+                search_path = os.environ["PATH"].split(os.pathsep)
+            for path in search_path:
+                exe_file = os.path.join(path, command_name)
+                if is_exe(exe_file):
+                    return exe_file
+        return None
+
+    def _learn(self, mark_as, username, message):
+        command = [
+            self._command,
+            "-u", username,
+        ]
+
+        if self._sa_is_local:
+            command += [
+                "--%s" % mark_as,
+                "--no-sync"
+            ]
+        else:
+            command += [
+                "-L", mark_as,
+                "-d", self._spamd_host,
+                "-p", "%d" % self._spamd_port,
+            ]
+
+        message = force_bytes(message)
+        return_code, output = exec_cmd(command, pinput=message)
+        if not self._sa_is_local and return_code in [5, 6]:
+            # spamc return codes:
+            #     5 - message was learned
+            #     6 - already learned
+            pass
+        elif return_code != 0:
+            raise SpamAssassinError(
+                _("unable to learn %(mark_as)s for %(username)s")
+                % {"mark_as": mark_as, "username": username},
+                username=username
+            )
+
+        if self._sa_is_local and username not in self._db_to_sync:
+            self._db_to_sync += username
+
+    def _get_sa_username(self, email):
+        if self.user.role in ["SuperAdmins", "DomainAdmins"]:
+            # Only SuperAdmins and DomainAdmins can do manual learning for
+            # messages to other users.
+            if self.recipient_db == "global":
+                username = self._default_username
+            elif self.recipient_db == "domain":
+                domain = self._get_domain_from_rcpt(email)
+                username = domain.name
+                if username not in self._setup_cache:
+                    setup_manual_learning_for_domain(domain)
+                    self._setup_cache.append(username)
+            else:
+                mailbox = self._get_mailbox_from_rcpt(email)
+                if mailbox is None:
+                    username = self._default_username
+                else:
+                    if isinstance(mailbox, admin_models.Mailbox):
+                        username = mailbox.full_address
+                    elif isinstance(mailbox, admin_models.AliasRecipient):
+                        username = mailbox.address
+                    else:
+                        username = self._default_username
+
+                    if (
+                        username != self._default_username and
+                        username not in self._setup_cache
+                    ):
+                        setup_manual_learning_for_mbox(self.user.mailbox)
+                        self._setup_cache.append(username)
+        else:
+            username = self.user.email
+            if username not in self._setup_cache:
+                setup_manual_learning_for_mbox(self.user.mailbox)
+                self._setup_cache.append(username)
+
+        return username
+
+    def _get_domain_from_rcpt(self, rcpt):
+        """Retrieve a domain from a recipient address."""
+        local_part, domain = split_address(rcpt)
+        try:
+            domain = admin_models.Domain.objects.get(name=domain)
+        except admin_models.Domain.DoesNotExist:
+            raise SpamAssassinError(_("Local domain not found"))
+        return domain
+
+    def _get_mailbox_from_rcpt(self, rcpt):
+        """Retrieve a mailbox from a recipient address."""
+        local_part, domain = split_address(rcpt)
+        local_part, extension = split_local_part(local_part)
+        try:
+            mailbox = (
+                admin_models.Mailbox.objects
+                .select_related("domain")
+                .get(address=local_part, domain__name=domain)
+            )
+        except admin_models.Mailbox.DoesNotExist:
+            try:
+                alias = (
+                    admin_models.Alias.objects
+                    .get(
+                        address="%s@%s" % (local_part, domain),
+                        aliasrecipient__r_mailbox__isnull=False
+                    )
+                )
+            except admin_models.Alias.DoesNotExist:
+                raise SpamAssassinError(_("No recipient found"))
+            else:
+                if alias.type == "alias":
+                    mailbox = alias.aliasrecipient_set\
+                        .filter(r_mailbox__isnull=False)\
+                        .first()
+                else:
+                    mailbox = None
+        return mailbox
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        for username in self._db_to_sync:
+            # if SA user database was updated sync it
+            self._sync(username)
+
+        return exc_type is None
+
+
+class SpamAssassinError(Exception):
+    def __init__(self, message, username=None):
+        super(SpamAssassinError, self).__init__(message)
+        self.username = username
+
+
 class AMrelease(object):
     def __init__(self):
         conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
@@ -182,7 +396,7 @@ recipient=%s
         return False
 
 
-class SpamassassinClient(object):
+class OLDSpamassassinClient(object):
     """A stupid spamassassin client."""
 
     def __init__(self, user, recipient_db):

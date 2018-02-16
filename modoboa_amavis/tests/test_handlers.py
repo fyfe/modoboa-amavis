@@ -205,6 +205,6 @@ class ManualLearningTestCase(ModoTestCase):
         sender = "spam@evil.corp"
         content = factories.SPAM_BODY.format(rcpt=rcpt, sender=sender)
 
-        saclient = lib.SpamassassinClient(user, recipient_db)
+        saclient = lib.OLDSpamassassinClient(user, recipient_db)
         result = saclient.learn_spam(rcpt, content)
         self.assertTrue(result)
