@@ -11,6 +11,7 @@ from email.utils import parseaddr
 from functools import wraps
 
 import idna
+from six.moves.urllib.parse import unquote
 
 from django.conf import settings
 from django.contrib.auth.views import redirect_to_login
@@ -19,6 +20,7 @@ from django.utils import six
 from django.utils.translation import ugettext as _
 
 from modoboa.admin import models as admin_models
+from modoboa.core import models as core_models
 from modoboa.lib.email_utils import (
     split_address, split_local_part, split_mailbox
 )
@@ -26,8 +28,10 @@ from modoboa.lib.exceptions import InternalError
 from modoboa.lib.sysutils import exec_cmd
 from modoboa.lib.web_utils import NavigationParameters
 from modoboa.parameters import tools as param_tools
-from .models import Policy, Users
-from .utils import smart_bytes, smart_text
+from modoboa_amavis.models import Policy, Users
+from modoboa_amavis.utils import (
+    force_bytes, force_text, smart_bytes, smart_text
+)
 
 
 def selfservice(ssfunc=None):
@@ -54,6 +58,89 @@ def selfservice(ssfunc=None):
             return ssfunc(request, *args, **kwargs)
         return wrapped_f
     return decorator
+
+
+class AmavisReleaseClient(object):
+    """A simple client to release messages from amavis quarantine.
+
+    See https://amavis.org/README.protocol.txt"""
+    _RE_OK_RESPONSE = re.compile(r"250 [\d\.]+ Ok")
+    _RELEASE_REQUEST = """request=release
+mail_id=%(mail_id)s
+secret_id=%(secret_id)s
+quar_type=Q
+requested_by=%(requested_by)s
+
+"""
+
+    def __init__(self, user):
+        """Initialise the amavis release client.
+
+        user is an instance of modoboa.core.models.User representing the logged
+        in user releasing the message or for self-service release the recipient
+        email address.
+        When a message is released amavis will add a Resent-From header
+        containing `email`."""
+        if isinstance(user, core_models.User):
+            self.requested_by = user.email
+        else:
+            self.requested_by = user
+        conf = dict(param_tools.get_global_parameters("modoboa_amavis"))
+        try:
+            if conf["am_pdp_mode"] == "inet":
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.connect((conf["am_pdp_host"], conf["am_pdp_port"]))
+            else:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(conf["am_pdp_socket"])
+        except socket.error as exc:
+            six.raise_from(
+                AmavisReleaseError(
+                    _("Connection to Amavis failed."),
+                    amavis_error=str(exc)
+                ),
+                exc
+            )
+
+    def release(self, mail_id, secret_id, recipient):
+        """Release a message from quarantine."""
+        request = force_bytes(
+            self._RELEASE_REQUEST %
+            {
+                "mail_id": mail_id,
+                "secret_id": secret_id,
+                "recipient": recipient,
+                "requested_by": self.requested_by,
+            }
+        )
+        self.sock.send(request)
+        answer = self.sock.recv(1024)
+        answer = unquote(force_text(answer))
+
+        if not self._RE_OK_RESPONSE.search(answer):
+            raise AmavisReleaseError(
+                _("Unable to release message."),
+                mail_id=mail_id,
+                amavis_error=answer
+            )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.sock is not None:
+            self.sock.shutdown(socket.SHUT_RDWR)
+            self.sock.close()
+            self.sock = None
+
+        return exc_type is None
+
+
+class AmavisReleaseError(Exception):
+    def __init__(self, message, mail_id=None, amavis_error=None):
+        super(AmavisReleaseError, self).__init__(message)
+        self.mail_id = mail_id
+        self.amavis_error = amavis_error
 
 
 class AMrelease(object):
