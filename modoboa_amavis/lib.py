@@ -257,7 +257,8 @@ class SpamAssassinClient(object):
             raise SpamAssassinError(
                 _("unable to learn %(mark_as)s for %(username)s")
                 % {"mark_as": mark_as, "username": username},
-                username=username
+                username=username,
+                sa_error=output
             )
 
         if self._sa_is_local and username not in self._db_to_sync:
@@ -352,9 +353,10 @@ class SpamAssassinClient(object):
 
 
 class SpamAssassinError(Exception):
-    def __init__(self, message, username=None):
+    def __init__(self, message, username=None, sa_error=None):
         super(SpamAssassinError, self).__init__(message)
         self.username = username
+        self.sa_error = sa_error
 
 
 class AMrelease(object):

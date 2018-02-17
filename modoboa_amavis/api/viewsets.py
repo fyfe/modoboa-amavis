@@ -202,6 +202,7 @@ class QuarantineViewSet(viewsets.GenericViewSet):
                     "detail": str(exc),
                     "mail_id": mail_id,
                     "mark_as": mark_as,
+                    "sa_error": exc.sa_error,
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
