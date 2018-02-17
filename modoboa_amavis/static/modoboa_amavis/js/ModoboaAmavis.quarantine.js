@@ -8,7 +8,7 @@
         var message = alert_box.getElementsByClassName("message")[0];
         message.innerHTML = response["detail"];
         alert_box.classList.remove("alert-success");
-        alert_box.classList.remove("alert-error");
+        alert_box.classList.remove("alert-danger");
         alert_box.classList.add(alert_class);
         alert_box.classList.remove("hidden");
         if (alert_class == "alert-success") {
