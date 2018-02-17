@@ -203,7 +203,7 @@ class SpamAssassinClient(object):
             "--sync"
         ]
 
-        return_code, output = exec_cmd(command)
+        return_code, output = exec_cmd(" ".join(command))
         if return_code != 0:
             raise SpamAssassinError(
                 _("unable to sync SpamAssassin database for %(username)s")
@@ -247,7 +247,7 @@ class SpamAssassinClient(object):
             ]
 
         message = force_bytes(message)
-        return_code, output = exec_cmd(command, pinput=message)
+        return_code, output = exec_cmd(" ".join(command), pinput=message)
         if not self._sa_is_local and return_code in [5, 6]:
             # spamc return codes:
             #     5 - message was learned
