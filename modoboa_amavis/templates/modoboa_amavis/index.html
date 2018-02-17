@@ -27,6 +27,11 @@ $(document).ready(function() {
     });
 });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/js-cookie@2/src/js.cookie.min.js"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/polyfill.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.js' %}"></script>
+<script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.quarantine.js' %}"></script>
+<script type="text/javascript" src="{% url 'modoboa_amavis:action_urls' %}"></script>
 {% endblock %}
 
 {% block container_content %}

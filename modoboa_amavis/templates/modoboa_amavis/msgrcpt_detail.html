@@ -12,25 +12,7 @@
 <script type="text/javascript" src="{% static 'modoboa_amavis/js/polyfill.js' %}"></script>
 <script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.js' %}"></script>
 <script type="text/javascript" src="{% static 'modoboa_amavis/js/ModoboaAmavis.quarantine.js' %}"></script>
-<script>
-(function(app) {
-    "use strict";
-
-    app.quarantine
-        .set_page_urls({
-            "index": "{% url 'modoboa_amavis:index' %}",
-            "view": "{% url 'modoboa_amavis:quarantine_message' mail_id='_MAIL_ID_' %}",
-            "list": "{% url 'api:quarantine-list' %}",
-            "detail": "{% url 'api:quarantine-detail' mail_id='_MAIL_ID_' %}",
-            "delete": "{% url 'api:quarantine-delete' mail_id='_MAIL_ID_' %}",
-            "release": "{% url 'api:quarantine-release' mail_id='_MAIL_ID_' %}",
-            "mark_as_ham": "{% url 'api:quarantine-mark-as-ham' mail_id='_MAIL_ID_' %}",
-            "mark_as_spam": "{% url 'api:quarantine-mark-as-spam' mail_id='_MAIL_ID_' %}",
-        })
-        .init_detail_view();
-
-}(ModoboaAmavis));
-</script>
+<script type="text/javascript" src="{% url 'modoboa_amavis:action_urls' %}"></script>
 {% endblock %}
 
 {% block container_content %}
@@ -46,13 +28,17 @@
                 <span class="caret"></span>
             </button>
             <ul class="dropdown-menu">
-                <li><a href="#" id="btn_mark_as_ham" class="btn btn-default">{% trans "Ham" %}</a></li>
-                <li><a href="#" id="btn_mark_as_spam" class="btn btn-default">{% trans "Spam" %}</a></li>
+                <li><a href="#" id="btn_mark_as_ham">{% trans "Ham" %}</a></li>
+                <li><a href="#" id="btn_mark_as_spam">{% trans "Spam" %}</a></li>
             </ul>
         </div>
         <button id="btn_view_full_headers" type="button" class="btn btn-default" data-view-full-headers="false" data-label-show="{% trans "View full headers" %}" data-label-hide="{% trans "Hide full headers" %}"><span class="fa fa-angle-double-down"></span> <span id="view_full_headers_label" class="hidden-xs hidden-sm">{% trans "View full headers" %}</span></button>
     </div>
 </nav>
+<div id="alert_box" class="alert alert-warning alert-dismissible hidden" role="alert">
+  <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+  <span class="message"></span>
+</div>
 <article id="quarantined_message" data-mail-id="{{ message.mail_id }}">
     <section id="headers" class="headers">
         <dl class="dl-horizontal">

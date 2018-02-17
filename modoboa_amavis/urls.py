@@ -9,11 +9,16 @@ from django.conf.urls import url
 from . import views
 
 urlpatterns = [
-    url(r'^$', views.QuarantineListView.as_view(), name="index"),
+    url(r'^$', views.index, name="index"),
     url(
         r'^v/(?P<mail_id>[\w\-\+]+)/$',
         views.QuarantineMessageView.as_view(),
         name="quarantine_message"
+    ),
+    url(
+        r'^action_urls.js$',
+        views.action_urls,
+        name="action_urls"
     ),
     url(r'^listing/$', views._listing, name="_mail_list"),
     url(r'^listing/page/$', views.listing_page, name="mail_page"),

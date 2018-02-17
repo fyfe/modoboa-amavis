@@ -446,6 +446,15 @@ def process(request):
         return mark_messages(request, ids, "ham")
 
 
+@login_required
+def action_urls(request):
+    return render(
+        request,
+        "modoboa_amavis/action_urls.js",
+        content_type="text/javascript"
+    )
+
+
 class QuarantineListView(ListView):
 
     model = "modoboa_amavis.models.Msgrcpt"

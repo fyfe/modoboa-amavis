@@ -151,13 +151,14 @@ Quarantine.prototype = {
     viewmail_loader: function(e) {
         e.preventDefault();
         var $tr = $(e.target).parent();
-        var $to = $tr.find("td[name=to]");
-
-        this.navobj.baseurl($tr.attr("id"));
-        if ($to.length) {
-            this.navobj.setparam("rcpt", $to.html().trim());
+        var url = ModoboaAmavis.quarantine
+            .action_urls["view"].replace("_MAIL_ID_", $tr.attr("id"));
+        if (event.ctrlKey || event.metaKey) {
+            window.open(url, "_blank");
         }
-        this.navobj.update();
+        else {
+            document.location = url;
+        }
     },
 
     /*
