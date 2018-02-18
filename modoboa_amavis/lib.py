@@ -208,7 +208,8 @@ class SpamAssassinClient(object):
             raise SpamAssassinError(
                 _("unable to sync SpamAssassin database for %(username)s")
                 % {"username": username},
-                username=username
+                username=username,
+                sa_error=output
             )
 
     def _find_command(self, command_name, search_path=None):
