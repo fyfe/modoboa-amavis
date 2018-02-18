@@ -7,6 +7,7 @@ import re
 import socket
 import string
 import struct
+import subprocess
 from email.utils import parseaddr
 from functools import wraps
 
@@ -203,13 +204,26 @@ class SpamAssassinClient(object):
             "--sync"
         ]
 
-        return_code, output = exec_cmd(" ".join(command))
-        if return_code != 0:
-            raise SpamAssassinError(
-                _("unable to sync SpamAssassin database for %(username)s")
-                % {"username": username},
-                username=username,
-                sa_error=output
+        # return_code, output = exec_cmd(" ".join(command))
+        # if return_code != 0:
+        #     raise SpamAssassinError(
+        #         _("unable to sync SpamAssassin database for %(username)s")
+        #         % {"username": username},
+        #         username=username,
+        #         sa_error=output
+        #     )
+
+        try:
+            popen_checkcall(command)
+        except CalledProcessError as exc:
+            six.raise_from(
+                SpamAssassinError(
+                    _("unable to sync SpamAssassin database for %(username)s")
+                    % {"username": username},
+                    username=username,
+                    sa_error=exc.stderr
+                ),
+                exc
             )
 
     def _find_command(self, command_name, search_path=None):
@@ -247,20 +261,39 @@ class SpamAssassinClient(object):
                 "-p", "%d" % self._spamd_port,
             ]
 
-        message = force_bytes(message)
-        return_code, output = exec_cmd(force_bytes(" ".join(command)), pinput=message)
-        if not self._sa_is_local and return_code in [5, 6]:
-            # spamc return codes:
-            #     5 - message was learned
-            #     6 - already learned
-            pass
-        elif return_code != 0:
-            raise SpamAssassinError(
-                _("unable to learn %(mark_as)s for %(username)s")
-                % {"mark_as": mark_as, "username": username},
-                username=username,
-                sa_error=output
-            )
+        # message = force_bytes(message)
+        # return_code, output = exec_cmd(force_bytes(" ".join(command)), pinput=message)
+        # if not self._sa_is_local and return_code in [5, 6]:
+        #     # spamc return codes:
+        #     #     5 - message was learned
+        #     #     6 - already learned
+        #     pass
+        # elif return_code != 0:
+        #     raise SpamAssassinError(
+        #         _("unable to learn %(mark_as)s for %(username)s")
+        #         % {"mark_as": mark_as, "username": username},
+        #         username=username,
+        #         sa_error=output
+        #     )
+
+        try:
+            popen_checkcall(command, data_in=message)
+        except CalledProcessError as exc:
+            if not self._sa_is_local and exc.returncode in [5, 6]:
+                # spamc return codes:
+                #     5 - message was learned
+                #     6 - already learned
+                pass
+            else:
+                six.raise_from(
+                    SpamAssassinError(
+                        _("unable to learn %(mark_as)s for %(username)s")
+                        % {"mark_as": mark_as, "username": username},
+                        username=username,
+                        sa_error=exc.stderr
+                    ),
+                    exc
+                )
 
         if self._sa_is_local and username not in self._db_to_sync:
             self._db_to_sync += username
@@ -745,3 +778,50 @@ def cleanup_email_address(address):
     if address[0]:
         return "%s <%s>" % address
     return address[1]
+
+
+def popen_checkcall(args, data_in=None):
+    """
+    Adapted from Py3 subprocess.checkcall().
+    subprocess.run() where are thou? :( Py >=3.5 only)
+    """
+    proc = None
+    out = None
+    err = None
+    try:
+        if data_in is None:
+            proc = subprocess.Popen(args)
+            proc.wait()
+        else:
+            proc = subprocess.Popen(args, stdin=subprocess.PIPE)
+            out, err = proc.communicate(input=force_bytes(data_in))
+    except Exception as exc:
+        if proc is not None:
+            proc.kill()
+            proc.wait()
+        six.raise_from(
+            CalledProcessError(proc.returncode, args, out, err),
+            exc
+        )
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        out, err = proc.communicate()
+        six.raise_from(
+            CalledProcessError(proc.returncode, args, out, err),
+            exc
+        )
+
+    if proc.returncode:
+        raise CalledProcessError(proc.returncode, args, out, err)
+
+    return 0
+
+
+class CalledProcessError(Exception):
+
+    def __init__(self, returncode, cmd, stdout, stderr):
+        self.returncode = returncode
+        self.cmd = cmd
+        self.stdout = stdout
+        self.stderr = stderr
+        super(CalledProcessError, self).__init__()
