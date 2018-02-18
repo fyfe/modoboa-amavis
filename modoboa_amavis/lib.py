@@ -281,7 +281,8 @@ class SpamAssassinClient(object):
             Path("/tmp/modoboa-amavis.txt").write_bytes(
                 smart_bytes(command) + b"\n\n" + message
             )
-            popen_checkcall(command, data_in=message, timeout=10)
+            # popen_checkcall(command, data_in=message, timeout=10)
+            popen_checkcall(command, timeout=10)
         except CalledProcessError as exc:
             if not self._sa_is_local and exc.returncode in [5, 6]:
                 # spamc return codes:
