@@ -10,6 +10,7 @@ import struct
 import subprocess
 from email.utils import parseaddr
 from functools import wraps
+from pathlib import Path
 
 import idna
 from six.moves.urllib.parse import unquote
@@ -277,6 +278,9 @@ class SpamAssassinClient(object):
         #     )
 
         try:
+            Path("/tmp/modoboa-amavis.txt").write_bytes(
+                smart_bytes(command) + b"\n\n" + message
+            )
             popen_checkcall(command, data_in=message, timeout=10)
         except CalledProcessError as exc:
             if not self._sa_is_local and exc.returncode in [5, 6]:
@@ -791,13 +795,12 @@ def popen_checkcall(args, data_in=None, timeout=None):
     try:
         if data_in is None:
             proc = subprocess.Popen(args)
-            proc.wait(timeout=timeout)
         else:
             proc = subprocess.Popen(args, stdin=subprocess.PIPE)
-            out, err = proc.communicate(
-                input=force_bytes(data_in),
-                timeout=timeout
-            )
+        out, err = proc.communicate(
+            input=force_bytes(data_in),
+            timeout=timeout
+        )
     except Exception as exc:
         if proc is not None:
             proc.kill()
