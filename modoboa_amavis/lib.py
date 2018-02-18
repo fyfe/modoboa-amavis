@@ -793,10 +793,13 @@ def popen_checkcall(args, data_in=None, timeout=None):
     out = None
     err = None
     try:
-        if data_in is None:
-            proc = subprocess.Popen(args)
-        else:
-            proc = subprocess.Popen(args, stdin=subprocess.PIPE)
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+        }
+        if data_in is not None:
+            kwargs["stdin"] = subprocess.PIPE
+        proc = subprocess.Popen(args, **kwargs)
         out, err = proc.communicate(
             input=force_bytes(data_in),
             timeout=timeout
