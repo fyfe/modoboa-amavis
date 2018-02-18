@@ -278,11 +278,10 @@ class SpamAssassinClient(object):
         #     )
 
         try:
-            Path("/tmp/modoboa-amavis.txt").write_bytes(
-                smart_bytes(command) + b"\n\n" + message
-            )
-            # popen_checkcall(command, data_in=message, timeout=10)
-            popen_checkcall(command, timeout=10)
+            #Path("/tmp/modoboa-amavis.txt").write_bytes(
+            #    smart_bytes(command) + b"\n\n" + message
+            #)
+            popen_checkcall(command, data_in=message, timeout=10)
         except CalledProcessError as exc:
             if not self._sa_is_local and exc.returncode in [5, 6]:
                 # spamc return codes:
@@ -799,6 +798,10 @@ def popen_checkcall(args, data_in=None, timeout=None):
             "stderr": subprocess.PIPE,
         }
         if data_in is not None:
+            Path("/tmp/modoboa_amavis.txt").write_bytes(
+                smart_bytes(" ".join(args)) +
+                (b"%d\n\n" % len(data_in))
+            )
             kwargs["stdin"] = subprocess.PIPE
         proc = subprocess.Popen(args, **kwargs)
         out, err = proc.communicate(
