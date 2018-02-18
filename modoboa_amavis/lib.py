@@ -214,7 +214,7 @@ class SpamAssassinClient(object):
         #     )
 
         try:
-            popen_checkcall(command)
+            popen_checkcall(command, timeout=10)
         except CalledProcessError as exc:
             six.raise_from(
                 SpamAssassinError(
@@ -277,7 +277,7 @@ class SpamAssassinClient(object):
         #     )
 
         try:
-            popen_checkcall(command, data_in=message)
+            popen_checkcall(command, data_in=message, timeout=10)
         except CalledProcessError as exc:
             if not self._sa_is_local and exc.returncode in [5, 6]:
                 # spamc return codes:
@@ -780,7 +780,7 @@ def cleanup_email_address(address):
     return address[1]
 
 
-def popen_checkcall(args, data_in=None):
+def popen_checkcall(args, data_in=None, timeout=None):
     """
     Adapted from Py3 subprocess.checkcall().
     subprocess.run() where are thou? :( Py >=3.5 only)
@@ -791,10 +791,13 @@ def popen_checkcall(args, data_in=None):
     try:
         if data_in is None:
             proc = subprocess.Popen(args)
-            proc.wait()
+            proc.wait(timeout=timeout)
         else:
             proc = subprocess.Popen(args, stdin=subprocess.PIPE)
-            out, err = proc.communicate(input=force_bytes(data_in))
+            out, err = proc.communicate(
+                input=force_bytes(data_in),
+                timeout=timeout
+            )
     except Exception as exc:
         if proc is not None:
             proc.kill()
