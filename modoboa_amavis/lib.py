@@ -248,7 +248,7 @@ class SpamAssassinClient(object):
             ]
 
         message = force_bytes(message)
-        return_code, output = exec_cmd(" ".join(command), pinput=message)
+        return_code, output = exec_cmd(force_bytes(" ".join(command)), pinput=message)
         if not self._sa_is_local and return_code in [5, 6]:
             # spamc return codes:
             #     5 - message was learned
