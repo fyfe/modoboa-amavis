@@ -82,6 +82,11 @@ class Command(BaseCommand):
         )
         delete_mail_ids(mail_ids)
 
+        existing_mail_ids = (
+            Msgs.objects
+            .values_list("mail_id", flat=True)
+            .distinct()
+        )
         self.__vprint("Deleting unrefrenced quarantine objects")
         mail_ids = (
             Quarantine.objects
